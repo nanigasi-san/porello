@@ -35,3 +35,4 @@ porello-*.png
 .next-dev*.log
 .verify-dev*.log
 .porello-server.log
+.pw-dev*.log

@@ -269,6 +269,7 @@ function SortableList({
             aria-label="リスト名"
           />
         </form>
+        <span className="mt-1 rounded bg-white px-2 py-1 text-xs text-[#667085]">{list.cards.length}</span>
         <div className="relative">
           <button
             onClick={() => setMenuOpen((value) => !value)}
@@ -298,6 +299,11 @@ function SortableList({
             {list.cards.map((card) => (
               <SortableCard key={card.id} card={card} onOpen={onOpenCard} dragDisabled={dragDisabled} />
             ))}
+            {list.cards.length === 0 ? (
+              <div className="rounded-md border border-dashed border-[#cbd5e1] bg-white/70 p-4 text-center text-sm text-[#667085]">
+                一致するカードはありません
+              </div>
+            ) : null}
           </ListDropZone>
         </SortableContext>
       </div>
@@ -450,7 +456,7 @@ function CommandPalette({
           )}
         </div>
         <div className="border-t border-[#eef1f6] px-4 py-2 text-xs text-[#98a2b3]">
-          Ctrl/Cmd + K で開閉
+          Ctrl/Cmd + K で開閉・Escで閉じる
         </div>
       </div>
     </div>
@@ -628,8 +634,8 @@ export function BoardClient({ board }: { board: BoardView }) {
               className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-[#d8dee9] bg-white px-3 text-sm font-medium text-[#475467] shadow-sm transition hover:border-[#a8b2c1] hover:text-[#101828]"
             >
               <Search size={16} />
-              Command
-              <span className="rounded bg-[#f2f4f7] px-1.5 py-0.5 font-mono text-[11px] text-[#667085]">K</span>
+              カードを探す
+              <span className="rounded bg-[#f2f4f7] px-1.5 py-0.5 font-mono text-[11px] text-[#667085]">Ctrl K</span>
             </button>
             <form action={createList.bind(null, board.id)} className="flex gap-2 rounded-lg border border-[#d8dee9] bg-white p-2 shadow-sm">
               <input
