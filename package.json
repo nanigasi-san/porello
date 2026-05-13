@@ -1,0 +1,45 @@
+{
+  "name": "porello",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@auth/drizzle-adapter": "latest",
+    "@dnd-kit/core": "latest",
+    "@dnd-kit/sortable": "latest",
+    "@dnd-kit/utilities": "latest",
+    "@neondatabase/serverless": "latest",
+    "class-variance-authority": "latest",
+    "clsx": "latest",
+    "drizzle-orm": "latest",
+    "lucide-react": "latest",
+    "next": "latest",
+    "next-auth": "beta",
+    "react": "latest",
+    "react-dom": "latest",
+    "tailwind-merge": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "@tailwindcss/postcss": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "drizzle-kit": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "tailwindcss": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}
