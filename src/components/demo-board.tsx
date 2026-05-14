@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   closestCorners,
   DndContext,
@@ -191,6 +191,20 @@ export function DemoBoard() {
       cards: list.cards.filter((card) => `${card.title} ${card.description}`.toLowerCase().includes(normalizedQuery)),
     }));
   }, [lists, query]);
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedCard(null);
+      }
+    }
+
+    if (selectedCard) {
+      window.addEventListener("keydown", closeOnEscape);
+    }
+
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedCard]);
 
   function handleDragStart(event: DragStartEvent) {
     const cardId = String(event.active.id).replace("demo-card:", "");

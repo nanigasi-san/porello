@@ -9,11 +9,31 @@ export function hasSameMembers(left: readonly string[], right: readonly string[]
     return false;
   }
 
-  const rightSet = new Set(right);
-  return left.every((id) => rightSet.has(id));
+  const counts = new Map<string, number>();
+  left.forEach((id) => counts.set(id, (counts.get(id) ?? 0) + 1));
+
+  for (const id of right) {
+    const count = counts.get(id);
+
+    if (!count) {
+      return false;
+    }
+
+    if (count === 1) {
+      counts.delete(id);
+    } else {
+      counts.set(id, count - 1);
+    }
+  }
+
+  return counts.size === 0;
 }
 
 export function moveArrayItem<T>(items: readonly T[], fromIndex: number, toIndex: number) {
+  if (fromIndex < 0 || fromIndex >= items.length || toIndex < 0 || toIndex >= items.length || fromIndex === toIndex) {
+    return [...items];
+  }
+
   const copy = [...items];
   const [item] = copy.splice(fromIndex, 1);
   copy.splice(toIndex, 0, item);

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db";
 import { boards, cardChecklistItems, cardComments, cardLabels, cards, labels, lists, users } from "@/db/schema";
+import { DEFAULT_LIST_TITLES } from "@/lib/board-defaults";
 import {
   getOwnedBoardOrThrow,
   getOwnedCardOrThrow,
@@ -48,6 +49,11 @@ type CardOrderUpdate = {
   cardIds: string[];
 };
 
+export type BoardDiscordWebhookFormState = {
+  status: "idle" | "success" | "error";
+  message: string | null;
+};
+
 async function requireUserId() {
   const session = await getCurrentSession();
   const userId = session?.user?.id;
@@ -57,6 +63,17 @@ async function requireUserId() {
   }
 
   return userId;
+}
+
+async function requireSessionUser() {
+  const session = await getCurrentSession();
+  const user = session?.user;
+
+  if (!user?.id) {
+    throw new Error("You must be signed in.");
+  }
+
+  return user;
 }
 
 function normalizeDateTime(value: FormDataEntryValue | null) {
@@ -100,14 +117,29 @@ export async function createBoard(formData: FormData) {
 
   const db = getDb();
 
-  const [board] = await db
-    .insert(boards)
-    .values({
-      ownerId: userId,
-      title,
-      updatedAt: new Date(),
-    })
-    .returning({ id: boards.id });
+  const [board] = await db.transaction(async (tx) => {
+    const timestamp = new Date();
+    const createdBoards = await tx
+      .insert(boards)
+      .values({
+        ownerId: userId,
+        title,
+        updatedAt: timestamp,
+      })
+      .returning({ id: boards.id });
+    const [createdBoard] = createdBoards;
+
+    await tx.insert(lists).values(
+      DEFAULT_LIST_TITLES.map((listTitle, index) => ({
+        boardId: createdBoard.id,
+        title: listTitle,
+        position: toPosition(index),
+        updatedAt: timestamp,
+      })),
+    );
+
+    return createdBoards;
+  });
 
   redirect(`/boards/${board.id}`);
 }
@@ -135,12 +167,29 @@ export async function renameBoard(boardId: string, formData: FormData) {
   revalidatePath(`/boards/${boardId}`);
 }
 
-export async function saveBoardDiscordWebhook(boardId: string, formData: FormData) {
+export async function saveBoardDiscordWebhook(
+  boardId: string,
+  _previousState: BoardDiscordWebhookFormState,
+  formData: FormData,
+): Promise<BoardDiscordWebhookFormState> {
   const userId = await requireUserId();
   const webhookUrl = String(formData.get("webhookUrl") ?? "");
 
-  await setBoardDiscordWebhook(boardId, userId, webhookUrl);
+  try {
+    await setBoardDiscordWebhook(boardId, userId, webhookUrl);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Invalid Discord webhook URL.") {
+      return {
+        status: "error",
+        message: "Discord Webhook URL が不正です。DiscordのWebhook URLを入力してください。",
+      };
+    }
+
+    throw error;
+  }
+
   revalidatePath(`/boards/${boardId}`);
+  return { status: "success", message: "Discord通知を保存しました。" };
 }
 
 export async function removeBoardDiscordWebhook(boardId: string) {
@@ -283,7 +332,8 @@ export async function createCard(listId: string, formData: FormData) {
 }
 
 export async function updateCard(cardId: string, formData: FormData) {
-  const userId = await requireUserId();
+  const user = await requireSessionUser();
+  const userId = user.id;
   const title = normalizeTitle(formData.get("title"), "Untitled card");
   const description = String(formData.get("description") ?? "").trim();
   const dueAt = normalizeDateTime(formData.get("dueAt"));
@@ -291,7 +341,7 @@ export async function updateCard(cardId: string, formData: FormData) {
   let previousAssigneeId: string | null = null;
 
   if (!process.env.DATABASE_URL) {
-    const result = await updateSqliteCard(cardId, userId, title, description, dueAt, assigneeId);
+    const result = await updateSqliteCard(cardId, userId, title, description, dueAt, assigneeId, user);
     previousAssigneeId = result.previousAssigneeId;
     await notifyCardAssigned(cardId, userId, previousAssigneeId, assigneeId);
     revalidatePath("/boards");

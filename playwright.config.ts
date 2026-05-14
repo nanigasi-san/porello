@@ -1,4 +1,7 @@
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+
+const e2eSqlitePath = path.join(process.cwd(), ".porello-data", "porello-e2e.sqlite");
 
 export default defineConfig({
   testDir: "./tests",
@@ -23,5 +26,9 @@ export default defineConfig({
     url: "http://localhost:3100",
     reuseExistingServer: true,
     timeout: 120_000,
+    env: {
+      PORELLO_E2E_TEST_DB: "1",
+      PORELLO_SQLITE_PATH: e2eSqlitePath,
+    },
   },
 });

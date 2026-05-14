@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { notificationListStatus, validateDiscordWebhookUrl } from "./discord-notifications";
+import {
+  assignedNotificationTitle,
+  buildDiscordCardUrl,
+  dueSoonNotificationTitle,
+  movedNotificationTitle,
+  notificationListStatus,
+  validateDiscordWebhookUrl,
+} from "./discord-notifications";
 
 describe("discord notification helpers", () => {
   it("matches only doing and done list names case-insensitively", () => {
@@ -19,5 +26,20 @@ describe("discord notification helpers", () => {
       "https://discordapp.com/api/webhooks/123456/token_value",
     );
     expect(() => validateDiscordWebhookUrl("https://example.com/webhooks/123/token")).toThrow("Invalid Discord webhook URL.");
+  });
+
+  it("builds card-specific board URLs", () => {
+    expect(buildDiscordCardUrl("https://porello.example", "board-1", "card-1")).toBe(
+      "https://porello.example/boards/board-1?card=card-1",
+    );
+    expect(buildDiscordCardUrl("https://porello.example/", "board-1", "card-1")).toBe(
+      "https://porello.example/boards/board-1?card=card-1",
+    );
+  });
+
+  it("formats concise Discord notification titles", () => {
+    expect(assignedNotificationTitle("New card", "山田海音")).toBe("[New card] に [山田海音] がアサインされました");
+    expect(movedNotificationTitle("task2", "doing")).toBe("[task2] が [doing] に移動されました");
+    expect(dueSoonNotificationTitle("Due task")).toBe("[Due task] の締め切りが近づいています");
   });
 });

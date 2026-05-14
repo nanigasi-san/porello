@@ -18,7 +18,7 @@ const DUE_SOON_NOTIFICATION_TYPE = "due_soon";
 
 type DiscordWebhookEmbed = {
   title: string;
-  description: string;
+  description?: string;
   color: number;
   fields?: { name: string; value: string; inline?: boolean }[];
   url?: string;
@@ -135,11 +135,11 @@ export async function notifyCardAssigned(cardId: string, userId: string, previou
     return;
   }
 
+  const assigneeLabel = card.assigneeName ?? card.assigneeEmail ?? "担当者";
   await sendDiscordWebhook(card.webhookUrl, {
-    title: "カードがアサインされました",
-    description: `**${card.title}** が ${card.assigneeName ?? card.assigneeEmail ?? "担当者"} にアサインされました。`,
+    title: assignedNotificationTitle(card.title, assigneeLabel),
     color: 0x0f766e,
-    url: boardUrl(card.boardId),
+    url: cardUrl(card),
     fields: notificationFields(card),
     timestamp: new Date().toISOString(),
   });
@@ -182,10 +182,9 @@ export async function sendCardMoveNotifications(notifications: CardMoveNotificat
   await Promise.all(
     notifications.map((notification) =>
       sendDiscordWebhook(notification.card.webhookUrl, {
-        title: notification.status === "done" ? "カードがDoneに移動しました" : "カードがDoingに移動しました",
-        description: `**${notification.card.title}** が **${notification.toListTitle}** に移動しました。`,
+        title: movedNotificationTitle(notification.card.title, notification.toListTitle),
         color: notification.status === "done" ? 0x16a34a : 0x2563eb,
-        url: boardUrl(notification.card.boardId),
+        url: cardUrl(notification.card),
         fields: [
           ...notificationFields(notification.card),
           { name: "移動元", value: notification.fromListTitle, inline: true },
@@ -204,10 +203,10 @@ export async function sendDueSoonDiscordNotifications(now = new Date()) {
 
   for (const card of dueCards) {
     const didSend = await sendDiscordWebhook(card.webhookUrl, {
-      title: "締め切りが近づいています",
-      description: `**${card.title}** の締め切りが24時間以内です。`,
+      title: dueSoonNotificationTitle(card.title),
+      description: "締め切りが24時間以内です。",
       color: 0xf59e0b,
-      url: boardUrl(card.boardId),
+      url: cardUrl(card),
       fields: [
         ...notificationFields(card),
         { name: "締め切り", value: card.dueAt ? formatDateTime(card.dueAt) : "未設定", inline: true },
@@ -387,12 +386,33 @@ function notificationFields(card: NotificationCard) {
   return [
     { name: "ボード", value: card.boardTitle, inline: true },
     { name: "リスト", value: card.listTitle, inline: true },
+    { name: "カードURL", value: cardUrl(card) ?? "未設定", inline: false },
   ];
 }
 
-function boardUrl(boardId: string) {
+export function buildDiscordCardUrl(baseUrl: string, boardId: string, cardId: string) {
+  return `${baseUrl.replace(/\/$/, "")}/boards/${boardId}?card=${cardId}`;
+}
+
+export function assignedNotificationTitle(cardTitle: string, assigneeLabel: string) {
+  return `${notificationVariable(cardTitle)} に ${notificationVariable(assigneeLabel)} がアサインされました`;
+}
+
+export function movedNotificationTitle(cardTitle: string, listTitle: string) {
+  return `${notificationVariable(cardTitle)} が ${notificationVariable(listTitle)} に移動されました`;
+}
+
+export function dueSoonNotificationTitle(cardTitle: string) {
+  return `${notificationVariable(cardTitle)} の締め切りが近づいています`;
+}
+
+function notificationVariable(value: string) {
+  return `[${value.trim()}]`;
+}
+
+function cardUrl(card: NotificationCard) {
   const baseUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "";
-  return baseUrl ? `${baseUrl.replace(/\/$/, "")}/boards/${boardId}` : undefined;
+  return baseUrl ? buildDiscordCardUrl(baseUrl, card.boardId, card.id) : undefined;
 }
 
 function formatDateTime(date: Date) {

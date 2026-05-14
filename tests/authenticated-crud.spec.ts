@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
 
 async function login(page: Page) {
   await page.goto("/signin");
@@ -67,6 +67,20 @@ test.describe("authenticated CRUD", () => {
     await expect(page.getByText(boardName)).not.toBeVisible();
   });
 
+  test("deletes a board from the board list", async ({ page }) => {
+    const boardName = `E2E list delete board ${Date.now()}`;
+
+    await login(page);
+    await createBoard(page, boardName);
+    await page.goto("/boards");
+
+    await expect(page.getByRole("link", { name: new RegExp(boardName) })).toBeVisible();
+    await page.getByRole("button", { name: `${boardName}を削除` }).click({ noWaitAfter: true });
+
+    await expect(page).toHaveURL(/\/boards$/);
+    await expect(page.getByRole("link", { name: new RegExp(boardName) })).not.toBeVisible();
+  });
+
   test("creates and deletes a list", async ({ page }) => {
     const suffix = Date.now();
     const boardName = `E2E list board ${suffix}`;
@@ -93,6 +107,9 @@ test.describe("authenticated CRUD", () => {
 
     await login(page);
     await createBoard(page, boardName);
+    for (const listName of ["backlog", "todo", "doing", "in review", "done"]) {
+      await expect(listRegion(page, listName)).toBeVisible();
+    }
 
     await openBoardMenu(page);
     await page.getByPlaceholder("Discord Webhook URL").fill("https://discord.com/api/webhooks/123456/test-token");
@@ -176,13 +193,35 @@ test.describe("authenticated CRUD", () => {
     await expect(page.getByRole("region", { name: `リスト ${listName}` })).toBeVisible();
 
     const list = page.getByRole("region", { name: `リスト ${listName}` });
-    await list.getByPlaceholder("カードを追加").fill(cardName);
     await list.getByRole("button", { name: `${listName}にカードを追加` }).click();
-    await expect(page.getByText(cardName)).toBeVisible();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    const titleInput = dialog.getByLabel("タイトル");
+    await expect(titleInput).toBeFocused();
+    await expect(async () => {
+      const selectedText = await titleInput.evaluate((node) => {
+        const input = node as HTMLInputElement;
+        return input.value.slice(input.selectionStart ?? 0, input.selectionEnd ?? 0);
+      });
+      expect(selectedText).toBe("New card");
+    }).toPass();
+    await titleInput.fill(cardName);
+    await dialog.getByRole("button", { name: "カードを保存" }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole("button", { name: new RegExp(cardName) })).toBeVisible();
+
+    const cardId = await page.getByRole("button", { name: new RegExp(cardName) }).getAttribute("data-card-id");
+    expect(cardId).toBeTruthy();
+
+    await page.goto(`${page.url().split("?")[0]}?card=${cardId}`);
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(page).not.toHaveURL(/card=/);
 
     await page.getByRole("button", { name: new RegExp(cardName) }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await page.getByRole("button", { name: "削除" }).click();
+    await expect(dialog).toBeVisible();
+    await page.getByRole("button", { name: `${cardName}を削除` }).click();
     await expect(page.getByText(cardName)).not.toBeVisible();
 
     await openBoardMenu(page);
@@ -205,16 +244,19 @@ test.describe("authenticated CRUD", () => {
     const list = page.getByRole("region", { name: `リスト ${listName}` });
     await expect(list).toBeVisible();
 
-    await list.getByPlaceholder("カードを追加").fill(cardName);
     await list.getByRole("button", { name: `${listName}にカードを追加` }).click();
-    await page.getByRole("button", { name: new RegExp(cardName) }).click();
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
+    await dialog.getByLabel("タイトル").fill(cardName);
     await dialog.getByLabel("締め切り").fill("2026-05-20T10:30");
     await dialog.getByLabel("担当者").selectOption({ label: "Test User" });
     await dialog.getByLabel("説明").fill(`Spec: https://example.com/porello/${suffix}`);
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "カードを保存" }).click();
+    await expect(dialog).not.toBeVisible();
+
+    await page.getByRole("button", { name: new RegExp(cardName) }).click();
+    await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("link", { name: `https://example.com/porello/${suffix}` })).toBeVisible();
 
     await dialog.getByPlaceholder("ラベル名").fill("Urgent");
@@ -234,7 +276,11 @@ test.describe("authenticated CRUD", () => {
     await expect(page.getByRole("button", { name: new RegExp(cardName) })).toContainText("Test User");
 
     await page.getByPlaceholder("カード検索").fill("Urgent");
+    await expect(page.getByText("1 件表示")).toBeVisible();
     await expect(page.getByText(cardName)).toBeVisible();
+    await page.getByPlaceholder("カード検索").press("Escape");
+    await expect(page.getByText("1 件表示")).not.toBeVisible();
+    await page.getByPlaceholder("カード検索").fill("Urgent");
     await page.getByRole("button", { name: "検索をクリア" }).click();
 
     await page.getByRole("button", { name: new RegExp(cardName) }).click();

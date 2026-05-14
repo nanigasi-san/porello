@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
 
 function column(page: Page, name: string): Locator {
   return page.getByTestId(`demo-list-${name.toLowerCase()}`);
@@ -54,7 +54,7 @@ test.describe("demo mode", () => {
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page.getByRole("dialog")).toContainText("本番URLのcallbackをGoogle Cloud Consoleに追加します。");
 
-    await page.getByRole("button", { name: "閉じる" }).click();
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).not.toBeVisible();
   });
 

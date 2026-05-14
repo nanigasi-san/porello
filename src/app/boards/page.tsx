@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarDays, Columns3, Plus, SquareKanban } from "lucide-react";
-import { createBoard } from "@/app/actions";
+import { CalendarDays, Columns3, Plus, SquareKanban, Trash2 } from "lucide-react";
+import { createBoard, deleteBoard } from "@/app/actions";
 import { AppShell } from "@/components/app-shell";
 import { SubmitButton } from "@/components/submit-button";
 import { getBoardsForUser } from "@/lib/data";
@@ -34,11 +34,14 @@ export default async function BoardsPage() {
           <form action={createBoard} className="flex w-full max-w-xl gap-2 rounded-lg border border-[#d8dee9] bg-white p-2 shadow-sm">
             <input
               name="title"
+              required
+              autoFocus
+              aria-label="新しいボード名"
               className="min-w-0 flex-1 rounded-md border border-transparent bg-[#f8fafc] px-3 py-2 text-sm outline-none transition placeholder:text-[#98a2b3] focus:border-[#0f766e] focus:bg-white"
               placeholder="新しいボード名"
               maxLength={120}
             />
-            <SubmitButton className="inline-flex shrink-0 items-center gap-2 rounded-md bg-[#0f766e] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]">
+            <SubmitButton className="inline-flex shrink-0 items-center gap-2 rounded-md bg-[#0f766e] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]" title="ボードを作成">
               <Plus size={17} />
               作成
             </SubmitButton>
@@ -60,27 +63,44 @@ export default async function BoardsPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {boards.map((board) => (
-              <Link
+              <article
                 key={board.id}
-                href={`/boards/${board.id}`}
-                className="group rounded-lg border border-[#d8dee9] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#99c7c2] hover:shadow-md"
+                className="group rounded-lg border border-[#d8dee9] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#99c7c2] hover:shadow-md focus-within:border-[#99c7c2] focus-within:shadow-md"
               >
-                <div className="mb-8 flex items-start justify-between gap-4">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#eef6f5] text-[#0f766e]">
-                    <SquareKanban size={22} />
+                <div className="mb-8 flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#eef6f5] text-[#0f766e]">
+                      <SquareKanban size={22} />
+                    </div>
+                    <div className="flex items-center gap-1 rounded-md bg-[#f2f4f7] px-2 py-1 text-xs text-[#667085]">
+                      <CalendarDays size={13} />
+                      {new Intl.DateTimeFormat("ja-JP", { month: "short", day: "numeric" }).format(board.updatedAt)}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 rounded-md bg-[#f2f4f7] px-2 py-1 text-xs text-[#667085]">
-                    <CalendarDays size={13} />
-                    {new Intl.DateTimeFormat("ja-JP", { month: "short", day: "numeric" }).format(board.updatedAt)}
-                  </div>
+                  <form action={deleteBoard.bind(null, board.id)}>
+                    <button
+                      type="submit"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#98a2b3] transition hover:bg-[#fff1f1] hover:text-[#b42318] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#b42318]"
+                      aria-label={`${board.title}を削除`}
+                      title="ボードを削除"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </form>
                 </div>
-                <h2 className="line-clamp-2 text-lg font-semibold text-[#101828] group-hover:text-[#0f766e]">
-                  {board.title}
-                </h2>
-                <p className="mt-3 text-sm text-[#667085]">
-                  {board.listCount} リスト / {board.cardCount} カード
-                </p>
-              </Link>
+                <Link
+                  href={`/boards/${board.id}`}
+                  className="block rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0f766e]"
+                  title={`${board.title}を開く`}
+                >
+                  <h2 className="line-clamp-2 text-lg font-semibold text-[#101828] group-hover:text-[#0f766e]">
+                    {board.title}
+                  </h2>
+                  <div className="mt-3 text-sm text-[#667085]">
+                    {board.listCount} リスト / {board.cardCount} カード
+                  </div>
+                </Link>
+              </article>
             ))}
           </div>
         )}

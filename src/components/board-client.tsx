@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   closestCorners,
   DndContext,
@@ -64,6 +65,7 @@ import {
   updateCard,
   updateChecklistItem,
 } from "@/app/actions";
+import type { BoardDiscordWebhookFormState } from "@/app/actions";
 import type { BoardView, CardAttachmentView, CardView, ChecklistItemView, LabelView, ListView } from "@/lib/data";
 
 type DragItem =
@@ -74,6 +76,7 @@ const listDragId = (id: string) => `list:${id}`;
 const cardDragId = (id: string) => `card:${id}`;
 const listDropId = (id: string) => `list-drop:${id}`;
 const urlPattern = /(https?:\/\/[^\s<>"']+)/g;
+const initialDiscordWebhookState: BoardDiscordWebhookFormState = { status: "idle", message: null };
 
 function dateTimeInputValue(value: Date | string | null) {
   if (!value) {
@@ -119,8 +122,8 @@ function formatFileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function userLabel(user: CardView["assignee"]) {
-  return user?.name ?? user?.email ?? "Unknown user";
+function userLabel(user: CardView["assignee"], fallbackId?: string | null) {
+  return user?.name ?? user?.email ?? fallbackId ?? "Unknown user";
 }
 
 function LinkedText({ text }: { text: string }) {
@@ -243,7 +246,22 @@ function searchableCardText(card: CardView) {
     .toLowerCase();
 }
 
+function replaceCardQuery(cardId: string | null) {
+  const url = new URL(window.location.href);
+  if (cardId) {
+    url.searchParams.set("card", cardId);
+  } else {
+    url.searchParams.delete("card");
+  }
+  window.history.replaceState(null, "", url);
+}
+
 function BoardMenu({ board }: { board: BoardView }) {
+  const [discordWebhookState, saveDiscordWebhookAction, isSavingDiscordWebhook] = useActionState(
+    saveBoardDiscordWebhook.bind(null, board.id),
+    initialDiscordWebhookState,
+  );
+
   return (
     <details className="relative">
       <summary
@@ -261,14 +279,16 @@ function BoardMenu({ board }: { board: BoardView }) {
             name="title"
             defaultValue={board.title}
             maxLength={120}
+            required
+            onFocus={(event) => event.currentTarget.select()}
             className="w-full rounded-md border border-[#d8dee9] px-3 py-2 text-sm outline-none focus:border-[#0f766e]"
           />
-          <button className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#0f766e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]">
+          <button type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#0f766e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]" title="ボード名を保存">
             <Save size={15} />
             保存
           </button>
         </form>
-        <form action={saveBoardDiscordWebhook.bind(null, board.id)} className="mt-3 space-y-2 border-t border-[#eef1f6] pt-3">
+        <form action={saveDiscordWebhookAction} className="mt-3 space-y-2 border-t border-[#eef1f6] pt-3">
           <div className="flex items-center justify-between gap-2">
             <label className="text-xs font-semibold uppercase text-[#667085]">Discord通知</label>
             {board.discordWebhookConfigured ? (
@@ -278,17 +298,35 @@ function BoardMenu({ board }: { board: BoardView }) {
           <input
             name="webhookUrl"
             type="password"
+            inputMode="url"
+            autoComplete="off"
             placeholder={board.discordWebhookConfigured ? "新しいWebhook URL" : "Discord Webhook URL"}
+            aria-invalid={discordWebhookState.status === "error"}
+            aria-describedby={discordWebhookState.message ? "discord-webhook-message" : undefined}
             className="w-full rounded-md border border-[#d8dee9] px-3 py-2 text-sm outline-none focus:border-[#0f766e]"
           />
-          <button className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#0f766e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]">
+          {discordWebhookState.message ? (
+            <p
+              id="discord-webhook-message"
+              role={discordWebhookState.status === "error" ? "alert" : "status"}
+              className={discordWebhookState.status === "error" ? "text-xs text-[#b42318]" : "text-xs text-[#0f766e]"}
+            >
+              {discordWebhookState.message}
+            </p>
+          ) : null}
+          <button
+            type="submit"
+            disabled={isSavingDiscordWebhook}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#0f766e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59] disabled:cursor-not-allowed disabled:bg-[#8bb7b2]"
+            title="Discord通知設定を保存"
+          >
             <Save size={15} />
-            保存
+            {isSavingDiscordWebhook ? "保存中" : "保存"}
           </button>
         </form>
         {board.discordWebhookConfigured ? (
           <form action={removeBoardDiscordWebhook.bind(null, board.id)} className="mt-2">
-            <button className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#d8dee9] bg-white px-3 py-2 text-sm font-semibold text-[#475467] transition hover:border-[#a8b2c1] hover:text-[#101828]">
+            <button type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#d8dee9] bg-white px-3 py-2 text-sm font-semibold text-[#475467] transition hover:border-[#a8b2c1] hover:text-[#101828]">
               <Trash2 size={15} />
               Discord通知を削除
             </button>
@@ -296,6 +334,7 @@ function BoardMenu({ board }: { board: BoardView }) {
         ) : null}
         <form action={deleteBoard.bind(null, board.id)} className="mt-3 border-t border-[#eef1f6] pt-3">
           <button
+            type="submit"
             data-testid="delete-board-button"
             className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#fecaca] bg-[#fff7f7] px-3 py-2 text-sm font-semibold text-[#b42318] transition hover:bg-[#fee4e2]"
           >
@@ -347,7 +386,8 @@ function SortableCard({
       {...attributes}
       {...listeners}
       onClick={() => onOpen(card)}
-      className={`w-full rounded-md border border-[#e4e7ec] bg-white p-3 text-left text-sm shadow-sm transition hover:border-[#b8ded9] hover:shadow ${
+      data-card-id={card.id}
+      className={`w-full rounded-md border border-[#e4e7ec] bg-white p-3 text-left text-sm shadow-sm transition hover:border-[#b8ded9] hover:shadow focus-visible:border-[#0f766e] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0f766e] ${
         isDragging ? "opacity-40" : ""
       }`}
     >
@@ -381,7 +421,7 @@ function SortableCard({
             {card.assignee ? (
               <span className="inline-flex items-center gap-1 rounded bg-[#eef6f5] px-1.5 py-0.5 text-[#0f766e]">
                 <User size={12} />
-                {userLabel(card.assignee)}
+                {userLabel(card.assignee, card.assigneeId)}
               </span>
             ) : null}
             {card.checklistItems.length > 0 ? (
@@ -416,13 +456,17 @@ function SortableList({
   onRenameList,
   onDeleteList,
   dragDisabled,
+  creatingCard,
+  filtering,
 }: {
   list: ListView;
   onOpenCard: (card: CardView) => void;
-  onCreateCard: (listId: string, formData: FormData) => void;
+  onCreateCard: (listId: string) => void;
   onRenameList: (listId: string, formData: FormData) => void;
   onDeleteList: (listId: string) => void;
   dragDisabled: boolean;
+  creatingCard: boolean;
+  filtering: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -455,6 +499,16 @@ function SortableList({
         >
           <GripVertical size={17} />
         </button>
+        <button
+          type="button"
+          onClick={() => onCreateCard(list.id)}
+          disabled={creatingCard || filtering}
+          className="mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#0f766e] text-white transition hover:bg-[#115e59] disabled:cursor-wait disabled:bg-[#98a2b3]"
+          aria-label={`${list.title}にカードを追加`}
+          title={filtering ? "検索中はカードを追加できません" : creatingCard ? "カードを作成中" : "カードを追加"}
+        >
+          {creatingCard ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/60 border-t-white" /> : <Plus size={16} />}
+        </button>
         <form action={onRenameList.bind(null, list.id)} className="min-w-0 flex-1">
           <input
             name="title"
@@ -462,6 +516,8 @@ function SortableList({
             maxLength={120}
             className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm font-semibold text-[#101828] outline-none transition focus:border-[#0f766e] focus:bg-white"
             aria-label="リスト名"
+            required
+            onFocus={(event) => event.currentTarget.select()}
             onBlur={(event) => event.currentTarget.form?.requestSubmit()}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
@@ -475,6 +531,7 @@ function SortableList({
         <span className="mt-1 rounded bg-white px-2 py-1 text-xs text-[#667085]">{list.cards.length}</span>
         <div className="relative">
           <button
+            type="button"
             onClick={() => setMenuOpen((value) => !value)}
             className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#667085] transition hover:bg-white hover:text-[#101828]"
             aria-label="リストメニュー"
@@ -504,29 +561,12 @@ function SortableList({
             ))}
             {list.cards.length === 0 ? (
               <div className="rounded-md border border-dashed border-[#cbd5e1] bg-white/70 p-4 text-center text-sm text-[#667085]">
-                一致するカードはありません
+                {filtering ? "一致するカードはありません" : "カードはありません"}
               </div>
             ) : null}
           </ListDropZone>
         </SortableContext>
       </div>
-
-      <form action={onCreateCard.bind(null, list.id)} className="border-t border-[#d8dee9] p-3">
-        <div className="flex gap-2">
-          <input
-            name="title"
-            placeholder="カードを追加"
-            maxLength={180}
-            className="min-w-0 flex-1 rounded-md border border-[#d8dee9] bg-white px-3 py-2 text-sm outline-none transition placeholder:text-[#98a2b3] focus:border-[#0f766e]"
-          />
-          <button
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#0f766e] text-white transition hover:bg-[#115e59]"
-            aria-label={`${list.title}にカードを追加`}
-          >
-            <Plus size={18} />
-          </button>
-        </div>
-      </form>
     </section>
   );
 }
@@ -551,19 +591,56 @@ function CardDialog({
   onUpdateCard: (cardId: string, updater: (card: CardView) => CardView) => void;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const labelNameRef = useRef<HTMLInputElement>(null);
+  const checklistTitleRef = useRef<HTMLInputElement>(null);
+  const commentBodyRef = useRef<HTMLTextAreaElement>(null);
   const completedChecklistItems = card.checklistItems.filter((item) => item.completed).length;
+  const updateCardFormId = `update-card-${card.id}`;
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    });
+  }, [card.id]);
 
   async function handleUpdateCard(formData: FormData) {
-    const result = await updateCard(card.id, formData);
-    onUpdateCard(card.id, (current) => ({
-      ...current,
-      title: result.title,
-      description: result.description,
-      dueAt: result.dueAt,
-      assigneeId: result.assigneeId,
-      assignee: result.assignee,
-      updatedAt: result.updatedAt,
-    }));
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const result = await updateCard(card.id, formData);
+      onUpdateCard(card.id, (current) => ({
+        ...current,
+        title: result.title,
+        description: result.description,
+        dueAt: result.dueAt,
+        assigneeId: result.assigneeId,
+        assignee: result.assignee,
+        updatedAt: result.updatedAt,
+      }));
+      onClose();
+    } catch (error) {
+      console.error(error);
+      setSaveError("保存できませんでした。もう一度試してください。");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function submitUpdateForm() {
+    const form = document.getElementById(updateCardFormId) as HTMLFormElement | null;
+    form?.requestSubmit();
+  }
+
+  function handleDialogKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && target.closest("form")?.id === updateCardFormId) {
+      event.preventDefault();
+      submitUpdateForm();
+    }
   }
 
   async function handleCreateLabel(formData: FormData) {
@@ -574,6 +651,8 @@ function CardDialog({
         ? current
         : { ...current, labels: [...current.labels, label] },
     );
+    labelNameRef.current?.form?.reset();
+    labelNameRef.current?.focus();
   }
 
   async function handleToggleLabel(label: LabelView) {
@@ -608,6 +687,8 @@ function CardDialog({
       ...current,
       checklistItems: [...current.checklistItems, item],
     }));
+    checklistTitleRef.current?.form?.reset();
+    checklistTitleRef.current?.focus();
   }
 
   async function handleChecklistChange(item: ChecklistItemView, completed: boolean, title = item.title) {
@@ -648,6 +729,8 @@ function CardDialog({
       ...current,
       comments: [...current.comments, comment],
     }));
+    commentBodyRef.current?.form?.reset();
+    commentBodyRef.current?.focus();
   }
 
   async function handleDeleteComment(commentId: string) {
@@ -704,8 +787,21 @@ function CardDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#101828]/45 px-4 py-8" role="dialog" aria-modal="true">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-lg border border-[#d8dee9] bg-white shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[#101828]/45 px-4 py-8"
+      role="dialog"
+      aria-modal="true"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      onKeyDown={handleDialogKeyDown}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-lg border border-[#d8dee9] bg-white shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-[#eef1f6] px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-[#101828]">カード詳細</h2>
@@ -713,26 +809,41 @@ function CardDialog({
               チェックリスト {completedChecklistItems}/{card.checklistItems.length}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[#667085] transition hover:bg-[#f2f4f7] hover:text-[#101828]"
-            aria-label="閉じる"
-            title="閉じる"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="submit"
+              form={updateCardFormId}
+              disabled={saving}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#0f766e] px-3 text-sm font-semibold text-white transition hover:bg-[#115e59] disabled:cursor-wait disabled:bg-[#98a2b3]"
+              aria-label="カードを保存"
+              title="保存"
+            >
+              {saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/60 border-t-white" /> : <Save size={16} />}
+              {saving ? "保存中" : "保存"}
+            </button>
+            <button
+              onClick={onClose}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[#667085] transition hover:bg-[#f2f4f7] hover:text-[#101828]"
+              aria-label="閉じる"
+              title="閉じる"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
         <div className="max-h-[calc(90vh-4.5rem)] overflow-y-auto p-5">
-          <form action={handleUpdateCard} className="space-y-4">
+          <form id={updateCardFormId} action={handleUpdateCard} className="space-y-4">
             <section className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-[1fr_13rem]">
                 <div>
                   <label htmlFor={`card-title-${card.id}`} className="mb-1.5 block text-xs font-semibold uppercase text-[#667085]">タイトル</label>
                   <input
+                    ref={titleInputRef}
                     id={`card-title-${card.id}`}
                     name="title"
                     defaultValue={card.title}
                     maxLength={180}
+                    required
                     className="w-full rounded-md border border-[#d8dee9] px-3 py-2 text-sm outline-none focus:border-[#0f766e]"
                   />
                 </div>
@@ -786,12 +897,11 @@ function CardDialog({
                   </div>
                 ) : null}
               </div>
-              <div className="flex justify-end">
-                <button className="inline-flex items-center justify-center gap-2 rounded-md bg-[#0f766e] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]">
-                  <Save size={16} />
-                  保存
-                </button>
-              </div>
+              {saveError ? (
+                <div className="rounded-md border border-[#fecaca] bg-[#fff7f7] px-3 py-2 text-sm text-[#b42318]" role="alert">
+                  {saveError}
+                </div>
+              ) : null}
             </section>
           </form>
 
@@ -820,9 +930,11 @@ function CardDialog({
             </div>
             <form action={handleCreateLabel} className="mt-3 flex flex-col gap-2 sm:flex-row">
               <input
+                ref={labelNameRef}
                 name="name"
                 placeholder="ラベル名"
                 maxLength={40}
+                required
                 className="min-w-0 flex-1 rounded-md border border-[#d8dee9] px-3 py-2 text-sm outline-none focus:border-[#0f766e]"
               />
               <input
@@ -876,9 +988,11 @@ function CardDialog({
             </div>
             <form action={handleAddChecklistItem} className="mt-3 flex gap-2">
               <input
+                ref={checklistTitleRef}
                 name="title"
                 placeholder="チェック項目を追加"
                 maxLength={200}
+                required
                 className="min-w-0 flex-1 rounded-md border border-[#d8dee9] px-3 py-2 text-sm outline-none focus:border-[#0f766e]"
               />
               <button className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#0f766e] text-white transition hover:bg-[#115e59]" aria-label="チェック項目を追加">
@@ -913,9 +1027,11 @@ function CardDialog({
             </div>
             <form action={handleAddComment} className="mt-3 space-y-2">
               <textarea
+                ref={commentBodyRef}
                 name="body"
                 rows={3}
                 placeholder="コメントを追加"
+                required
                 className="w-full resize-none rounded-md border border-[#d8dee9] px-3 py-2 text-sm leading-6 outline-none focus:border-[#0f766e]"
               />
               <div className="flex justify-end">
@@ -966,6 +1082,7 @@ function CardDialog({
               <input
                 name="file"
                 type="file"
+                required
                 className="min-w-0 flex-1 rounded-md border border-[#d8dee9] px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[#eef6f5] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-[#0f766e]"
               />
               <button
@@ -981,6 +1098,8 @@ function CardDialog({
           <div className="mt-6 flex justify-start border-t border-[#eef1f6] pt-4">
             <button
               onClick={() => onDelete(card.id)}
+              aria-label={`${card.title}を削除`}
+              title="カードを削除"
               className="inline-flex items-center justify-center gap-2 rounded-md border border-[#fecaca] bg-[#fff7f7] px-4 py-2 text-sm font-semibold text-[#b42318] transition hover:bg-[#fee4e2]"
             >
               <Trash2 size={16} />
@@ -1008,6 +1127,12 @@ function CommandPalette({
 }) {
   const [query, setQuery] = useState("");
 
+  useEffect(() => {
+    if (open) {
+      setQuery("");
+    }
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -1022,8 +1147,20 @@ function CommandPalette({
   });
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#101828]/35 px-4 pt-24" role="dialog" aria-modal="true">
-      <div className="mx-auto w-full max-w-2xl overflow-hidden rounded-lg border border-[#d8dee9] bg-white shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 bg-[#101828]/35 px-4 pt-24"
+      role="dialog"
+      aria-modal="true"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        className="mx-auto w-full max-w-2xl overflow-hidden rounded-lg border border-[#d8dee9] bg-white shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center gap-3 border-b border-[#eef1f6] px-4 py-3">
           <Search size={18} className="shrink-0 text-[#667085]" />
           <input
@@ -1043,10 +1180,13 @@ function CommandPalette({
         </div>
         <div className="max-h-96 overflow-y-auto p-2">
           {filteredCards.length === 0 ? (
-            <div className="px-3 py-8 text-center text-sm text-[#667085]">一致するカードはありません。</div>
+            <div className="px-3 py-8 text-center text-sm text-[#667085]">
+              {query.trim() ? `「${query.trim()}」に一致するカードはありません。` : "カードはありません。"}
+            </div>
           ) : (
             filteredCards.map((card) => {
               const list = lists.find((candidate) => candidate.id === card.listId);
+              const dueLabel = formatDueDate(card.dueAt);
               return (
                 <button
                   key={card.id}
@@ -1054,17 +1194,24 @@ function CommandPalette({
                     onOpenCard(card);
                     onClose();
                   }}
-                  className="block w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f8fafc]"
+                  className="block w-full rounded-md px-3 py-3 text-left transition hover:bg-[#f8fafc] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0f766e]"
                 >
                   <div className="text-sm font-medium text-[#101828]">{card.title}</div>
-                  <div className="mt-1 text-xs text-[#667085]">{list?.title ?? "List"}</div>
+                  <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#667085]">
+                    <span>{list?.title ?? "List"}</span>
+                    {dueLabel ? <span>{dueLabel}</span> : null}
+                    {card.assignee ? <span>{userLabel(card.assignee, card.assigneeId)}</span> : null}
+                  </div>
                 </button>
               );
             })
           )}
         </div>
-        <div className="border-t border-[#eef1f6] px-4 py-2 text-xs text-[#98a2b3]">
-          Ctrl/Cmd + K で開閉・Escで閉じる
+        <div className="flex items-center justify-between gap-3 border-t border-[#eef1f6] px-4 py-2 text-xs text-[#98a2b3]">
+          <span>
+            {filteredCards.length}/{cards.length} 件
+          </span>
+          <span>Ctrl/Cmd + K で開閉・Escで閉じる</span>
         </div>
       </div>
     </div>
@@ -1078,6 +1225,8 @@ export function BoardClient({ board }: { board: BoardView }) {
   const [selectedCard, setSelectedCard] = useState<CardView | null>(null);
   const [cardFilter, setCardFilter] = useState("");
   const [commandOpen, setCommandOpen] = useState(false);
+  const [creatingCardListId, setCreatingCardListId] = useState<string | null>(null);
+  const newListInputRef = useRef<HTMLInputElement>(null);
   const [, startTransition] = useTransition();
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1118,9 +1267,37 @@ export function BoardClient({ board }: { board: BoardView }) {
       cards: list.cards.filter((card) => searchableCardText(card).includes(query)),
     }));
   }, [cardFilter, lists]);
+  const visibleCardCount = visibleLists.reduce((sum, list) => sum + list.cards.length, 0);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const cardId = params.get("card");
+
+    if (!cardId) {
+      return;
+    }
+
+    setSelectedCard(lists.flatMap((list) => list.cards).find((card) => card.id === cardId) ?? null);
+  }, [lists]);
+
+  function openCard(card: CardView) {
+    setSelectedCard(card);
+    replaceCardQuery(card.id);
+  }
+
+  function closeCard() {
+    setSelectedCard(null);
+    replaceCardQuery(null);
+  }
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && selectedCard) {
+        setSelectedCard(null);
+        replaceCardQuery(null);
+        return;
+      }
+
       const isCommandKey = event.metaKey || event.ctrlKey;
       if (isCommandKey && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -1134,7 +1311,7 @@ export function BoardClient({ board }: { board: BoardView }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [selectedCard]);
 
   function persistCardOrder(nextLists: ListView[]) {
     startTransition(() => {
@@ -1258,6 +1435,8 @@ export function BoardClient({ board }: { board: BoardView }) {
         cards: [],
       },
     ]);
+    newListInputRef.current?.form?.reset();
+    newListInputRef.current?.focus();
     startTransition(() => {
       void (async () => {
         const createdList = await createList(board.id, formData);
@@ -1272,61 +1451,35 @@ export function BoardClient({ board }: { board: BoardView }) {
     });
   }
 
-  function handleCreateCard(listId: string, formData: FormData) {
-    const title = String(formData.get("title") ?? "").trim();
-
-    if (!title) {
+  function handleCreateCard(listId: string) {
+    if (creatingCardListId) {
       return;
     }
 
-    const timestamp = new Date();
-    setLists((current) =>
-      current.map((list) =>
-        list.id === listId
-          ? {
-              ...list,
-              cards: [
-                ...list.cards,
-                {
-                  id: `optimistic-card-${crypto.randomUUID()}`,
-                  listId,
-                  title,
-                  description: "",
-                  dueAt: null,
-                  assigneeId: null,
-                  position: (list.cards.length + 1) * 1000,
-                  createdAt: timestamp,
-                  updatedAt: timestamp,
-                  assignee: null,
-                  labels: [],
-                  checklistItems: [],
-                  comments: [],
-                  attachments: [],
-                },
-              ],
-            }
-          : list,
-      ),
-    );
+    setCreatingCardListId(listId);
     startTransition(() => {
       void (async () => {
-        const createdCard = await createCard(listId, formData);
-        if (!createdCard) {
-          return;
-        }
+        try {
+          const formData = new FormData();
+          const createdCard = await createCard(listId, formData);
+          if (!createdCard) {
+            return;
+          }
 
-        setLists((current) =>
-          current.map((list) =>
-            list.id === listId
-              ? {
-                  ...list,
-                  cards: list.cards.map((card) =>
-                    card.id.startsWith("optimistic-card-") && card.title === title ? createdCard : card,
-                  ),
-                }
-              : list,
-          ),
-        );
+          setLists((current) =>
+            current.map((list) =>
+              list.id === listId
+                ? {
+                    ...list,
+                    cards: [...list.cards, createdCard],
+                  }
+                : list,
+            ),
+          );
+          openCard(createdCard);
+        } finally {
+          setCreatingCardListId(null);
+        }
       })();
     });
   }
@@ -1354,7 +1507,7 @@ export function BoardClient({ board }: { board: BoardView }) {
   }
 
   function handleDeleteCard(cardId: string) {
-    setSelectedCard(null);
+    closeCard();
     setLists((current) =>
       current.map((list) => ({
         ...list,
@@ -1379,7 +1532,12 @@ export function BoardClient({ board }: { board: BoardView }) {
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
               <span className="rounded-md bg-[#eef6f5] px-2 py-1 text-[#0f766e]">{lists.length} リスト</span>
               <span className="rounded-md bg-[#f2f4f7] px-2 py-1">{allCards.length} カード</span>
-              {isFiltering ? <span>フィルタ中は並べ替えを停止します</span> : null}
+              {isFiltering ? (
+                <>
+                  <span className="rounded-md bg-[#fef3c7] px-2 py-1 text-[#92400e]">{visibleCardCount} 件表示</span>
+                  <span>フィルタ中は並べ替えを停止します</span>
+                </>
+              ) : null}
             </div>
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
@@ -1388,6 +1546,12 @@ export function BoardClient({ board }: { board: BoardView }) {
               <input
                 value={cardFilter}
                 onChange={(event) => setCardFilter(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setCardFilter("");
+                    event.currentTarget.blur();
+                  }
+                }}
                 placeholder="カード検索"
                 className="h-11 w-40 border-0 bg-transparent text-sm outline-none placeholder:text-[#98a2b3] sm:w-56"
               />
@@ -1396,29 +1560,27 @@ export function BoardClient({ board }: { board: BoardView }) {
                   onClick={() => setCardFilter("")}
                   className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#667085] transition hover:bg-[#f2f4f7]"
                   aria-label="検索をクリア"
+                  title="検索をクリア"
                 >
                   <X size={14} />
                 </button>
               ) : null}
             </div>
-            <button
-              onClick={() => setCommandOpen(true)}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-[#d8dee9] bg-white px-3 text-sm font-medium text-[#475467] shadow-sm transition hover:border-[#a8b2c1] hover:text-[#101828]"
-            >
-              <Search size={16} />
-              カードを探す
-              <span className="rounded bg-[#f2f4f7] px-1.5 py-0.5 font-mono text-[11px] text-[#667085]">Ctrl K</span>
-            </button>
             <form action={handleCreateList} className="flex gap-2 rounded-lg border border-[#d8dee9] bg-white p-2 shadow-sm">
               <input
+                ref={newListInputRef}
                 name="title"
                 placeholder="新しいリスト"
                 maxLength={120}
+                required
+                aria-label="新しいリスト"
                 className="min-w-0 rounded-md border border-transparent bg-[#f8fafc] px-3 py-2 text-sm outline-none transition placeholder:text-[#98a2b3] focus:border-[#0f766e] focus:bg-white"
               />
               <button
+                type="submit"
                 className="inline-flex items-center gap-2 rounded-md bg-[#0f766e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]"
                 aria-label="リストを追加"
+                title="リストを追加"
               >
                 <Plus size={17} />
                 追加
@@ -1444,11 +1606,13 @@ export function BoardClient({ board }: { board: BoardView }) {
                 <SortableList
                   key={list.id}
                   list={list}
-                  onOpenCard={setSelectedCard}
+                  onOpenCard={openCard}
                   onCreateCard={handleCreateCard}
                   onRenameList={handleRenameList}
                   onDeleteList={handleDeleteList}
                   dragDisabled={isFiltering}
+                  creatingCard={creatingCardListId === list.id}
+                  filtering={isFiltering}
                 />
               ))}
             </SortableContext>
@@ -1483,15 +1647,16 @@ export function BoardClient({ board }: { board: BoardView }) {
         cards={allCards}
         lists={lists}
         onClose={() => setCommandOpen(false)}
-        onOpenCard={setSelectedCard}
+        onOpenCard={openCard}
       />
       {selectedCard ? (
         <CardDialog
+          key={selectedCard.id}
           card={selectedCard}
           boardId={board.id}
           assigneeOptions={board.members}
           boardLabels={boardLabels}
-          onClose={() => setSelectedCard(null)}
+          onClose={closeCard}
           onDelete={handleDeleteCard}
           onAddBoardLabel={addBoardLabel}
           onUpdateCard={updateCardInState}

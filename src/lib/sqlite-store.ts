@@ -13,6 +13,7 @@ import type {
   ListView,
   UserSummary,
 } from "@/lib/data";
+import { DEFAULT_LIST_TITLES } from "@/lib/board-defaults";
 import { hasSameMembers, toPosition } from "@/lib/reorder";
 
 type BoardRow = {
@@ -120,9 +121,10 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
 
 function getSqlite() {
   if (!sqlite) {
-    const dataDir = path.join(process.cwd(), ".porello-data");
+    const sqlitePath = process.env.PORELLO_SQLITE_PATH;
+    const dataDir = sqlitePath ? path.dirname(sqlitePath) : path.join(process.cwd(), ".porello-data");
     mkdirSync(dataDir, { recursive: true });
-    sqlite = new Database(path.join(dataDir, "porello.sqlite"));
+    sqlite = new Database(sqlitePath ?? path.join(dataDir, "porello.sqlite"));
     sqlite.pragma("journal_mode = WAL");
     sqlite.exec(`
       CREATE TABLE IF NOT EXISTS boards (
@@ -241,6 +243,15 @@ function getSqlite() {
   return sqlite;
 }
 
+export function resetSqliteForTests() {
+  if (process.env.NODE_ENV !== "test" && process.env.PORELLO_E2E_TEST_DB !== "1") {
+    throw new Error("resetSqliteForTests is only available in tests.");
+  }
+
+  sqlite?.close();
+  sqlite = null;
+}
+
 function timestamp() {
   return new Date().toISOString();
 }
@@ -355,7 +366,11 @@ function ensureSqliteUser(userId: string, user?: BoardUserIdentity) {
     `INSERT INTO users (id, name, email, image)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
-       name = COALESCE(excluded.name, users.name),
+       name = CASE
+         WHEN excluded.name IS NOT NULL AND excluded.name <> excluded.id THEN excluded.name
+         WHEN users.name IS NULL THEN excluded.name
+         ELSE users.name
+       END,
        email = COALESCE(excluded.email, users.email),
        image = COALESCE(excluded.image, users.image)`,
   ).run(userId, name, email, image);
@@ -591,13 +606,16 @@ export async function createSqliteBoard(userId: string, title: string) {
   const db = getSqlite();
   const boardId = id("board");
   const time = timestamp();
-  db.prepare("INSERT INTO boards (id, owner_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
-    boardId,
-    userId,
-    title,
-    time,
-    time,
-  );
+  const insertBoard = db.prepare("INSERT INTO boards (id, owner_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
+  const insertList = db.prepare("INSERT INTO lists (id, board_id, title, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)");
+
+  db.transaction(() => {
+    insertBoard.run(boardId, userId, title, time, time);
+    DEFAULT_LIST_TITLES.forEach((listTitle, index) => {
+      insertList.run(id("list"), boardId, listTitle, toPosition(index), time, time);
+    });
+  })();
+
   return boardId;
 }
 
@@ -724,8 +742,9 @@ export async function updateSqliteCard(
   description: string,
   dueAt: Date | null,
   assigneeId: string | null,
+  user?: BoardUserIdentity,
 ) {
-  ensureSqliteUser(userId);
+  ensureSqliteUser(userId, user);
   const card = ownedCard(cardId, userId);
   const time = timestamp();
   const db = getSqlite();

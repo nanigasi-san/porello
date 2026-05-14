@@ -44,3 +44,5 @@ npm run typecheck
 npm run test
 npm run build
 ```
+
+Test design and maintenance details are documented in [docs/testing.md](docs/testing.md).
