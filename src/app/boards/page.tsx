@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CalendarDays, Columns3, Plus, SquareKanban } from "lucide-react";
-import { auth } from "@/auth";
 import { createBoard } from "@/app/actions";
 import { AppShell } from "@/components/app-shell";
 import { SubmitButton } from "@/components/submit-button";
 import { getBoardsForUser } from "@/lib/data";
+import { getCurrentSession } from "@/lib/session";
 
 export default async function BoardsPage() {
-  const session = await auth();
+  const session = await getCurrentSession();
 
   if (!session?.user?.id) {
     redirect("/signin");

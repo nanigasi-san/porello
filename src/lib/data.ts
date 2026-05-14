@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 import { getDb } from "@/db";
 import { boards, cards, lists } from "@/db/schema";
+import { getSqliteBoardForUser, getSqliteBoardsForUser } from "@/lib/sqlite-store";
 
 export type BoardSummary = typeof boards.$inferSelect & {
   listCount: number;
@@ -20,6 +21,11 @@ export type BoardView = typeof boards.$inferSelect & {
 
 export async function getBoardsForUser(userId: string): Promise<BoardSummary[]> {
   noStore();
+
+  if (!process.env.DATABASE_URL) {
+    return getSqliteBoardsForUser(userId);
+  }
+
   const db = getDb();
 
   const rows = await db
@@ -44,6 +50,11 @@ export async function getBoardsForUser(userId: string): Promise<BoardSummary[]> 
 
 export async function getBoardForUser(boardId: string, userId: string): Promise<BoardView | null> {
   noStore();
+
+  if (!process.env.DATABASE_URL) {
+    return getSqliteBoardForUser(boardId, userId);
+  }
+
   const db = getDb();
 
   const [board] = await db

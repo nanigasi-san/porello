@@ -3,7 +3,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { getDb } from "@/db";
 import { boards, cards, lists } from "@/db/schema";
 import {
@@ -12,6 +11,20 @@ import {
   getOwnedListOrThrow,
 } from "@/lib/data";
 import { hasSameMembers, normalizeTitle, toPosition } from "@/lib/reorder";
+import { getCurrentSession } from "@/lib/session";
+import {
+  createSqliteBoard,
+  createSqliteCard,
+  createSqliteList,
+  deleteSqliteBoard,
+  deleteSqliteCard,
+  deleteSqliteList,
+  renameSqliteBoard,
+  renameSqliteList,
+  reorderSqliteCards,
+  reorderSqliteLists,
+  updateSqliteCard,
+} from "@/lib/sqlite-store";
 
 type CardOrderUpdate = {
   listId: string;
@@ -19,7 +32,7 @@ type CardOrderUpdate = {
 };
 
 async function requireUserId() {
-  const session = await auth();
+  const session = await getCurrentSession();
   const userId = session?.user?.id;
 
   if (!userId) {
@@ -32,6 +45,12 @@ async function requireUserId() {
 export async function createBoard(formData: FormData) {
   const userId = await requireUserId();
   const title = normalizeTitle(formData.get("title"), "New board");
+
+  if (!process.env.DATABASE_URL) {
+    const boardId = await createSqliteBoard(userId, title);
+    redirect(`/boards/${boardId}`);
+  }
+
   const db = getDb();
 
   const [board] = await db
@@ -49,6 +68,14 @@ export async function createBoard(formData: FormData) {
 export async function renameBoard(boardId: string, formData: FormData) {
   const userId = await requireUserId();
   const title = normalizeTitle(formData.get("title"), "Untitled board");
+
+  if (!process.env.DATABASE_URL) {
+    await renameSqliteBoard(boardId, userId, title);
+    revalidatePath("/boards");
+    revalidatePath(`/boards/${boardId}`);
+    return;
+  }
+
   const db = getDb();
 
   await getOwnedBoardOrThrow(boardId, userId);
@@ -63,6 +90,13 @@ export async function renameBoard(boardId: string, formData: FormData) {
 
 export async function deleteBoard(boardId: string) {
   const userId = await requireUserId();
+
+  if (!process.env.DATABASE_URL) {
+    await deleteSqliteBoard(boardId, userId);
+    revalidatePath("/boards");
+    redirect("/boards");
+  }
+
   const db = getDb();
 
   await db.delete(boards).where(and(eq(boards.id, boardId), eq(boards.ownerId, userId)));
@@ -74,6 +108,13 @@ export async function deleteBoard(boardId: string) {
 export async function createList(boardId: string, formData: FormData) {
   const userId = await requireUserId();
   const title = normalizeTitle(formData.get("title"), "New list");
+
+  if (!process.env.DATABASE_URL) {
+    const list = await createSqliteList(boardId, userId, title);
+    revalidatePath(`/boards/${boardId}`);
+    return list;
+  }
+
   const db = getDb();
 
   await getOwnedBoardOrThrow(boardId, userId);
@@ -85,20 +126,32 @@ export async function createList(boardId: string, formData: FormData) {
     .orderBy(desc(lists.position))
     .limit(1);
 
-  await db.insert(lists).values({
-    boardId,
-    title,
-    position: (lastList?.position ?? 0) + 1000,
-    updatedAt: new Date(),
-  });
+  const timestamp = new Date();
+  const [list] = await db
+    .insert(lists)
+    .values({
+      boardId,
+      title,
+      position: (lastList?.position ?? 0) + 1000,
+      updatedAt: timestamp,
+    })
+    .returning();
 
-  await db.update(boards).set({ updatedAt: new Date() }).where(eq(boards.id, boardId));
+  await db.update(boards).set({ updatedAt: timestamp }).where(eq(boards.id, boardId));
   revalidatePath(`/boards/${boardId}`);
+  return { ...list, cards: [] };
 }
 
 export async function renameList(listId: string, formData: FormData) {
   const userId = await requireUserId();
   const title = normalizeTitle(formData.get("title"), "Untitled list");
+
+  if (!process.env.DATABASE_URL) {
+    await renameSqliteList(listId, userId, title);
+    revalidatePath("/boards");
+    return;
+  }
+
   const db = getDb();
   const { list } = await getOwnedListOrThrow(listId, userId);
 
@@ -109,6 +162,13 @@ export async function renameList(listId: string, formData: FormData) {
 
 export async function deleteList(listId: string) {
   const userId = await requireUserId();
+
+  if (!process.env.DATABASE_URL) {
+    await deleteSqliteList(listId, userId);
+    revalidatePath("/boards");
+    return;
+  }
+
   const db = getDb();
   const { list } = await getOwnedListOrThrow(listId, userId);
 
@@ -120,6 +180,13 @@ export async function deleteList(listId: string) {
 export async function createCard(listId: string, formData: FormData) {
   const userId = await requireUserId();
   const title = normalizeTitle(formData.get("title"), "New card");
+
+  if (!process.env.DATABASE_URL) {
+    const card = await createSqliteCard(listId, userId, title);
+    revalidatePath("/boards");
+    return card;
+  }
+
   const db = getDb();
   const { list } = await getOwnedListOrThrow(listId, userId);
 
@@ -130,21 +197,33 @@ export async function createCard(listId: string, formData: FormData) {
     .orderBy(desc(cards.position))
     .limit(1);
 
-  await db.insert(cards).values({
-    listId,
-    title,
-    position: (lastCard?.position ?? 0) + 1000,
-    updatedAt: new Date(),
-  });
+  const timestamp = new Date();
+  const [card] = await db
+    .insert(cards)
+    .values({
+      listId,
+      title,
+      position: (lastCard?.position ?? 0) + 1000,
+      updatedAt: timestamp,
+    })
+    .returning();
 
-  await db.update(boards).set({ updatedAt: new Date() }).where(eq(boards.id, list.boardId));
+  await db.update(boards).set({ updatedAt: timestamp }).where(eq(boards.id, list.boardId));
   revalidatePath(`/boards/${list.boardId}`);
+  return card;
 }
 
 export async function updateCard(cardId: string, formData: FormData) {
   const userId = await requireUserId();
   const title = normalizeTitle(formData.get("title"), "Untitled card");
   const description = String(formData.get("description") ?? "").trim();
+
+  if (!process.env.DATABASE_URL) {
+    await updateSqliteCard(cardId, userId, title, description);
+    revalidatePath("/boards");
+    return;
+  }
+
   const db = getDb();
   const { list } = await getOwnedCardOrThrow(cardId, userId);
 
@@ -158,6 +237,13 @@ export async function updateCard(cardId: string, formData: FormData) {
 
 export async function deleteCard(cardId: string) {
   const userId = await requireUserId();
+
+  if (!process.env.DATABASE_URL) {
+    await deleteSqliteCard(cardId, userId);
+    revalidatePath("/boards");
+    return;
+  }
+
   const db = getDb();
   const { list } = await getOwnedCardOrThrow(cardId, userId);
 
@@ -168,6 +254,13 @@ export async function deleteCard(cardId: string) {
 
 export async function reorderLists(boardId: string, listIds: string[]) {
   const userId = await requireUserId();
+
+  if (!process.env.DATABASE_URL) {
+    await reorderSqliteLists(boardId, userId, listIds);
+    revalidatePath(`/boards/${boardId}`);
+    return;
+  }
+
   const db = getDb();
 
   await getOwnedBoardOrThrow(boardId, userId);
@@ -195,6 +288,13 @@ export async function reorderLists(boardId: string, listIds: string[]) {
 
 export async function reorderCards(boardId: string, updates: CardOrderUpdate[]) {
   const userId = await requireUserId();
+
+  if (!process.env.DATABASE_URL) {
+    await reorderSqliteCards(boardId, userId, updates);
+    revalidatePath(`/boards/${boardId}`);
+    return;
+  }
+
   const db = getDb();
 
   await getOwnedBoardOrThrow(boardId, userId);

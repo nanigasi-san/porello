@@ -26,6 +26,7 @@ yarn-error.log*
 
 # vercel
 .vercel
+.porello-data
 
 # tests
 test-results
@@ -35,4 +36,5 @@ porello-*.png
 .next-dev*.log
 .verify-dev*.log
 .porello-server.log
+.porello-live*.log
 .pw-dev*.log

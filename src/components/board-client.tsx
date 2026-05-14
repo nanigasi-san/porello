@@ -84,6 +84,10 @@ function findContainerId(overId: string, lists: ListView[]) {
 }
 
 function moveCardBetweenLists(lists: ListView[], cardId: string, targetListId: string, overId: string) {
+  if (overId === cardDragId(cardId)) {
+    return lists;
+  }
+
   const sourceList = lists.find((list) => list.cards.some((card) => card.id === cardId));
   const targetList = lists.find((list) => list.id === targetListId);
 
@@ -224,10 +228,14 @@ function SortableCard({
 function SortableList({
   list,
   onOpenCard,
+  onCreateCard,
+  onDeleteList,
   dragDisabled,
 }: {
   list: ListView;
   onOpenCard: (card: CardView) => void;
+  onCreateCard: (listId: string, formData: FormData) => void;
+  onDeleteList: (listId: string) => void;
   dragDisabled: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -246,6 +254,7 @@ function SortableList({
     <section
       ref={setNodeRef}
       style={style}
+      aria-label={`リスト ${list.title}`}
       className={`flex h-[calc(100vh-12.5rem)] w-[20rem] shrink-0 flex-col rounded-lg border border-[#d8dee9] bg-[#f2f4f7] shadow-sm ${
         isDragging ? "opacity-50" : ""
       }`}
@@ -281,7 +290,7 @@ function SortableList({
           </button>
           {menuOpen ? (
             <form
-              action={deleteList.bind(null, list.id)}
+              action={() => onDeleteList(list.id)}
               className="absolute right-0 top-9 z-20 w-44 rounded-lg border border-[#d8dee9] bg-white p-2 shadow-xl"
             >
               <button className="inline-flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-[#b42318] transition hover:bg-[#fff1f1]">
@@ -308,7 +317,7 @@ function SortableList({
         </SortableContext>
       </div>
 
-      <form action={createCard.bind(null, list.id)} className="border-t border-[#d8dee9] p-3">
+      <form action={onCreateCard.bind(null, list.id)} className="border-t border-[#d8dee9] p-3">
         <div className="flex gap-2">
           <input
             name="title"
@@ -316,7 +325,10 @@ function SortableList({
             maxLength={180}
             className="min-w-0 flex-1 rounded-md border border-[#d8dee9] bg-white px-3 py-2 text-sm outline-none transition placeholder:text-[#98a2b3] focus:border-[#0f766e]"
           />
-          <button className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#0f766e] text-white transition hover:bg-[#115e59]">
+          <button
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#0f766e] text-white transition hover:bg-[#115e59]"
+            aria-label={`${list.title}にカードを追加`}
+          >
             <Plus size={18} />
           </button>
         </div>
@@ -328,9 +340,11 @@ function SortableList({
 function CardDialog({
   card,
   onClose,
+  onDelete,
 }: {
   card: CardView;
   onClose: () => void;
+  onDelete: (cardId: string) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[#101828]/45 px-4 py-8" role="dialog" aria-modal="true">
@@ -368,7 +382,7 @@ function CardDialog({
           </div>
           <div className="flex flex-col-reverse justify-between gap-3 border-t border-[#eef1f6] pt-4 sm:flex-row sm:items-center">
             <button
-              formAction={deleteCard.bind(null, card.id)}
+              formAction={() => onDelete(card.id)}
               className="inline-flex items-center justify-center gap-2 rounded-md border border-[#fecaca] bg-[#fff7f7] px-4 py-2 text-sm font-semibold text-[#b42318] transition hover:bg-[#fee4e2]"
             >
               <Trash2 size={16} />
@@ -594,6 +608,112 @@ export function BoardClient({ board }: { board: BoardView }) {
     }
   }
 
+  function handleCreateList(formData: FormData) {
+    const title = String(formData.get("title") ?? "").trim();
+
+    if (!title) {
+      return;
+    }
+
+    const timestamp = new Date();
+    setLists((current) => [
+      ...current,
+      {
+        id: `optimistic-list-${crypto.randomUUID()}`,
+        boardId: board.id,
+        title,
+        position: (current.length + 1) * 1000,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        cards: [],
+      },
+    ]);
+    startTransition(() => {
+      void (async () => {
+        const createdList = await createList(board.id, formData);
+        if (!createdList) {
+          return;
+        }
+
+        setLists((current) =>
+          current.map((list) => (list.id.startsWith("optimistic-list-") && list.title === title ? createdList : list)),
+        );
+      })();
+    });
+  }
+
+  function handleCreateCard(listId: string, formData: FormData) {
+    const title = String(formData.get("title") ?? "").trim();
+
+    if (!title) {
+      return;
+    }
+
+    const timestamp = new Date();
+    setLists((current) =>
+      current.map((list) =>
+        list.id === listId
+          ? {
+              ...list,
+              cards: [
+                ...list.cards,
+                {
+                  id: `optimistic-card-${crypto.randomUUID()}`,
+                  listId,
+                  title,
+                  description: "",
+                  position: (list.cards.length + 1) * 1000,
+                  createdAt: timestamp,
+                  updatedAt: timestamp,
+                },
+              ],
+            }
+          : list,
+      ),
+    );
+    startTransition(() => {
+      void (async () => {
+        const createdCard = await createCard(listId, formData);
+        if (!createdCard) {
+          return;
+        }
+
+        setLists((current) =>
+          current.map((list) =>
+            list.id === listId
+              ? {
+                  ...list,
+                  cards: list.cards.map((card) =>
+                    card.id.startsWith("optimistic-card-") && card.title === title ? createdCard : card,
+                  ),
+                }
+              : list,
+          ),
+        );
+      })();
+    });
+  }
+
+  function handleDeleteList(listId: string) {
+    setLists((current) => current.filter((list) => list.id !== listId));
+    startTransition(() => {
+      void deleteList(listId);
+    });
+  }
+
+  function handleDeleteCard(cardId: string) {
+    setSelectedCard(null);
+    setLists((current) =>
+      current.map((list) => ({
+        ...list,
+        cards: list.cards.filter((card) => card.id !== cardId),
+      })),
+    );
+    startTransition(() => {
+      void deleteCard(cardId);
+    });
+  }
+
   return (
     <section className="flex h-[calc(100vh-4rem)] flex-col">
       <div className="border-b border-[#d8dee9]/80 bg-white/70 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
@@ -637,14 +757,17 @@ export function BoardClient({ board }: { board: BoardView }) {
               カードを探す
               <span className="rounded bg-[#f2f4f7] px-1.5 py-0.5 font-mono text-[11px] text-[#667085]">Ctrl K</span>
             </button>
-            <form action={createList.bind(null, board.id)} className="flex gap-2 rounded-lg border border-[#d8dee9] bg-white p-2 shadow-sm">
+            <form action={handleCreateList} className="flex gap-2 rounded-lg border border-[#d8dee9] bg-white p-2 shadow-sm">
               <input
                 name="title"
                 placeholder="新しいリスト"
                 maxLength={120}
                 className="min-w-0 rounded-md border border-transparent bg-[#f8fafc] px-3 py-2 text-sm outline-none transition placeholder:text-[#98a2b3] focus:border-[#0f766e] focus:bg-white"
               />
-              <button className="inline-flex items-center gap-2 rounded-md bg-[#0f766e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]">
+              <button
+                className="inline-flex items-center gap-2 rounded-md bg-[#0f766e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]"
+                aria-label="リストを追加"
+              >
                 <Plus size={17} />
                 追加
               </button>
@@ -655,6 +778,7 @@ export function BoardClient({ board }: { board: BoardView }) {
       </div>
 
       <DndContext
+        id={`porello-board-${board.id}`}
         sensors={sensors}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
@@ -665,7 +789,14 @@ export function BoardClient({ board }: { board: BoardView }) {
           <div className="mx-auto flex max-w-7xl gap-4">
             <SortableContext items={visibleLists.map((list) => listDragId(list.id))} strategy={horizontalListSortingStrategy}>
               {visibleLists.map((list) => (
-                <SortableList key={list.id} list={list} onOpenCard={setSelectedCard} dragDisabled={isFiltering} />
+                <SortableList
+                  key={list.id}
+                  list={list}
+                  onOpenCard={setSelectedCard}
+                  onCreateCard={handleCreateCard}
+                  onDeleteList={handleDeleteList}
+                  dragDisabled={isFiltering}
+                />
               ))}
             </SortableContext>
             {lists.length === 0 ? (
@@ -701,7 +832,9 @@ export function BoardClient({ board }: { board: BoardView }) {
         onClose={() => setCommandOpen(false)}
         onOpenCard={setSelectedCard}
       />
-      {selectedCard ? <CardDialog card={selectedCard} onClose={() => setSelectedCard(null)} /> : null}
+      {selectedCard ? (
+        <CardDialog card={selectedCard} onClose={() => setSelectedCard(null)} onDelete={handleDeleteCard} />
+      ) : null}
     </section>
   );
 }

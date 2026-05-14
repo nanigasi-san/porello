@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:crud": "playwright test tests/authenticated-crud.spec.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"
   },
@@ -18,6 +20,7 @@
     "@dnd-kit/sortable": "latest",
     "@dnd-kit/utilities": "latest",
     "@neondatabase/serverless": "latest",
+    "better-sqlite3": "^12.10.0",
     "class-variance-authority": "latest",
     "clsx": "latest",
     "drizzle-orm": "latest",
@@ -32,6 +35,7 @@
   "devDependencies": {
     "@playwright/test": "latest",
     "@tailwindcss/postcss": "latest",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",

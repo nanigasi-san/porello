@@ -7,9 +7,11 @@ import {
   DragOverlay,
   KeyboardSensor,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
@@ -39,7 +41,7 @@ const initialLists: DemoList[] = [
     id: "backlog",
     title: "Backlog",
     cards: [
-      { id: "card-1", title: "Discord OAuthの環境変数を設定", description: "本番URLのcallbackをDiscord Developer Portalに追加します。" },
+      { id: "card-1", title: "Google OAuthの環境変数を設定", description: "本番URLのcallbackをGoogle Cloud Consoleに追加します。" },
       { id: "card-2", title: "最初のボードを作る", description: "プロジェクト単位でボードを分けます。" },
       { id: "card-3", title: "優先度を見直す", description: "今週やるものだけをDoingへ移します。" },
     ],
@@ -60,9 +62,83 @@ const initialLists: DemoList[] = [
 ];
 
 const cardDragId = (id: string) => `demo-card:${id}`;
+const listDropId = (id: string) => `demo-list:${id}`;
+
+function listTestId(list: DemoList) {
+  return `demo-list-${list.id.startsWith("list-") ? list.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : list.id}`;
+}
 
 function findListByCard(lists: DemoList[], cardId: string) {
   return lists.find((list) => list.cards.some((card) => card.id === cardId));
+}
+
+function findTargetListId(overId: string, lists: DemoList[]) {
+  if (overId.startsWith("demo-list:")) {
+    return overId.replace("demo-list:", "");
+  }
+
+  if (overId.startsWith("demo-card:")) {
+    const cardId = overId.replace("demo-card:", "");
+    return findListByCard(lists, cardId)?.id ?? null;
+  }
+
+  return null;
+}
+
+function moveCard(lists: DemoList[], cardId: string, targetListId: string, overId: string) {
+  if (overId === cardDragId(cardId)) {
+    return lists;
+  }
+
+  const sourceList = findListByCard(lists, cardId);
+  const targetList = lists.find((list) => list.id === targetListId);
+
+  if (!sourceList || !targetList) {
+    return lists;
+  }
+
+  const card = sourceList.cards.find((candidate) => candidate.id === cardId);
+
+  if (!card) {
+    return lists;
+  }
+
+  const sourceCards = sourceList.cards.filter((candidate) => candidate.id !== cardId);
+  const targetCardsBase =
+    sourceList.id === targetList.id
+      ? sourceCards
+      : targetList.cards.filter((candidate) => candidate.id !== cardId);
+  const overCardId = overId.startsWith("demo-card:") ? overId.replace("demo-card:", "") : null;
+  const overIndex = overCardId ? targetCardsBase.findIndex((candidate) => candidate.id === overCardId) : -1;
+  const insertIndex = overIndex >= 0 ? overIndex : targetCardsBase.length;
+  const nextTargetCards = [...targetCardsBase];
+  nextTargetCards.splice(insertIndex, 0, card);
+
+  return lists.map((list) => {
+    if (list.id === sourceList.id && list.id === targetList.id) {
+      return { ...list, cards: nextTargetCards };
+    }
+
+    if (list.id === sourceList.id) {
+      return { ...list, cards: sourceCards };
+    }
+
+    if (list.id === targetList.id) {
+      return { ...list, cards: nextTargetCards };
+    }
+
+    return list;
+  });
+}
+
+function DemoListDropZone({ listId, children }: { listId: string; children: React.ReactNode }) {
+  const { setNodeRef } = useDroppable({ id: listDropId(listId) });
+
+  return (
+    <div ref={setNodeRef} className="flex min-h-28 flex-col gap-2">
+      {children}
+    </div>
+  );
 }
 
 function SortableDemoCard({ card, onOpen }: { card: DemoCard; onOpen: (card: DemoCard) => void }) {
@@ -97,6 +173,8 @@ export function DemoBoard() {
   const [query, setQuery] = useState("");
   const [selectedCard, setSelectedCard] = useState<DemoCard | null>(null);
   const [activeCard, setActiveCard] = useState<DemoCard | null>(null);
+  const [newListTitle, setNewListTitle] = useState("");
+  const [newCardTitles, setNewCardTitles] = useState<Record<string, string>>({});
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -119,27 +197,97 @@ export function DemoBoard() {
     setActiveCard(lists.flatMap((list) => list.cards).find((card) => card.id === cardId) ?? null);
   }
 
+  function handleDragOver(event: DragOverEvent) {
+    const cardId = String(event.active.id).replace("demo-card:", "");
+    const overId = event.over ? String(event.over.id) : null;
+
+    if (!overId) {
+      return;
+    }
+
+    const targetListId = findTargetListId(overId, lists);
+
+    if (!targetListId) {
+      return;
+    }
+
+    setLists((current) => moveCard(current, cardId, targetListId, overId));
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     setActiveCard(null);
     const activeId = String(event.active.id).replace("demo-card:", "");
-    const overId = event.over ? String(event.over.id).replace("demo-card:", "") : null;
+    const overId = event.over ? String(event.over.id) : null;
 
-    if (!overId || activeId === overId) {
+    if (!overId) {
       return;
     }
 
     setLists((current) => {
-      const list = findListByCard(current, activeId);
-      if (!list || !list.cards.some((card) => card.id === overId)) {
+      const targetListId = findTargetListId(overId, current);
+
+      if (!targetListId) {
         return current;
       }
 
+      const overCardId = overId.startsWith("demo-card:") ? overId.replace("demo-card:", "") : null;
+      const list = findListByCard(current, activeId);
+
+      if (!list || !overCardId || !list.cards.some((card) => card.id === overCardId)) {
+        return moveCard(current, activeId, targetListId, overId);
+      }
+
       const oldIndex = list.cards.findIndex((card) => card.id === activeId);
-      const newIndex = list.cards.findIndex((card) => card.id === overId);
+      const newIndex = list.cards.findIndex((card) => card.id === overCardId);
+
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) {
+        return current;
+      }
+
       return current.map((candidate) =>
         candidate.id === list.id ? { ...candidate, cards: arrayMove(candidate.cards, oldIndex, newIndex) } : candidate,
       );
     });
+  }
+
+  function addList(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const title = newListTitle.trim();
+
+    if (!title) {
+      return;
+    }
+
+    setLists((current) => [...current, { id: `list-${crypto.randomUUID()}`, title, cards: [] }]);
+    setNewListTitle("");
+  }
+
+  function addCard(event: React.FormEvent<HTMLFormElement>, listId: string) {
+    event.preventDefault();
+    const title = newCardTitles[listId]?.trim();
+
+    if (!title) {
+      return;
+    }
+
+    setLists((current) =>
+      current.map((list) =>
+        list.id === listId
+          ? {
+              ...list,
+              cards: [
+                ...list.cards,
+                {
+                  id: `card-${crypto.randomUUID()}`,
+                  title,
+                  description: "デモで追加したカードです。",
+                },
+              ],
+            }
+          : list,
+      ),
+    );
+    setNewCardTitles((current) => ({ ...current, [listId]: "" }));
   }
 
   return (
@@ -152,7 +300,7 @@ export function DemoBoard() {
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-[#667085]">
               <span className="rounded-md bg-[#eef6f5] px-2 py-1 text-[#0f766e]">{lists.length} リスト</span>
               <span className="rounded-md bg-[#f2f4f7] px-2 py-1">{totalCards} カード</span>
-              <span>同じリスト内でドラッグできます</span>
+              <span>カードはリスト間でドラッグできます</span>
             </div>
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-[#d8dee9] bg-white px-3 shadow-sm">
@@ -173,15 +321,37 @@ export function DemoBoard() {
               </button>
             ) : null}
           </div>
+          <form onSubmit={addList} className="flex gap-2 rounded-lg border border-[#d8dee9] bg-white p-2 shadow-sm">
+            <input
+              value={newListTitle}
+              onChange={(event) => setNewListTitle(event.target.value)}
+              placeholder="リストを追加"
+              className="h-9 w-full min-w-0 rounded-md border border-transparent bg-[#f8fafc] px-3 text-sm outline-none transition placeholder:text-[#98a2b3] focus:border-[#0f766e] focus:bg-white sm:w-44"
+            />
+            <button
+              className="inline-flex h-9 shrink-0 items-center justify-center rounded-md bg-[#0f766e] px-3 text-sm font-semibold text-white transition hover:bg-[#115e59]"
+              aria-label="リストを追加"
+            >
+              追加
+            </button>
+          </form>
         </div>
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext
+        id="porello-demo-board"
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
         <div className="min-h-0 flex-1 overflow-x-auto px-4 py-5 sm:px-6 lg:px-8">
           <div className="mx-auto flex max-w-7xl gap-4">
             {visibleLists.map((list) => (
               <section
                 key={list.id}
+                data-testid={listTestId(list)}
                 className="flex h-[calc(100vh-12.5rem)] w-[20rem] shrink-0 flex-col rounded-lg border border-[#d8dee9] bg-[#f2f4f7] shadow-sm"
               >
                 <div className="flex items-center justify-between border-b border-[#d8dee9] p-3">
@@ -190,7 +360,7 @@ export function DemoBoard() {
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto p-3">
                   <SortableContext items={list.cards.map((card) => cardDragId(card.id))} strategy={verticalListSortingStrategy}>
-                    <div className="flex flex-col gap-2">
+                    <DemoListDropZone listId={list.id}>
                       {list.cards.map((card) => (
                         <SortableDemoCard key={card.id} card={card} onOpen={setSelectedCard} />
                       ))}
@@ -199,14 +369,26 @@ export function DemoBoard() {
                           一致するカードはありません
                         </div>
                       ) : null}
-                    </div>
+                    </DemoListDropZone>
                   </SortableContext>
                 </div>
                 <div className="border-t border-[#d8dee9] p-3">
-                  <button className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-[#b8c2d0] bg-white px-3 py-2 text-sm font-medium text-[#667085]">
-                    <Plus size={16} />
-                    本番ではここから追加
-                  </button>
+                  <form onSubmit={(event) => addCard(event, list.id)} className="flex gap-2">
+                    <input
+                      value={newCardTitles[list.id] ?? ""}
+                      onChange={(event) =>
+                        setNewCardTitles((current) => ({ ...current, [list.id]: event.target.value }))
+                      }
+                      placeholder="カードを追加"
+                      className="min-w-0 flex-1 rounded-md border border-[#d8dee9] bg-white px-3 py-2 text-sm outline-none transition placeholder:text-[#98a2b3] focus:border-[#0f766e]"
+                    />
+                    <button
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#0f766e] text-white transition hover:bg-[#115e59]"
+                      aria-label={`${list.title}にカードを追加`}
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </form>
                 </div>
               </section>
             ))}

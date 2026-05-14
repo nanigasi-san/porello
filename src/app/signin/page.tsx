@@ -1,15 +1,20 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Columns3, LogIn } from "lucide-react";
-import { auth, signIn } from "@/auth";
+import { hasGoogleOAuthConfig, signIn } from "@/auth";
+import { getCurrentSession } from "@/lib/session";
 
-async function signInWithDiscord() {
+async function signInWithGoogle() {
   "use server";
-  await signIn("discord", { redirectTo: "/boards" });
+  if (!hasGoogleOAuthConfig()) {
+    redirect("/demo");
+  }
+
+  await signIn("google", { redirectTo: "/boards" });
 }
 
 export default async function SignInPage() {
-  const session = await auth();
+  const session = await getCurrentSession();
 
   if (session?.user) {
     redirect("/boards");
@@ -28,13 +33,13 @@ export default async function SignInPage() {
           </div>
           <div>
             <h1 className="text-xl font-semibold text-[#101828]">Porelloにログイン</h1>
-            <p className="text-sm text-[#667085]">Discordアカウントを使います。</p>
+            <p className="text-sm text-[#667085]">Google設定前はデモを開きます。</p>
           </div>
         </div>
-        <form action={signInWithDiscord}>
+        <form action={signInWithGoogle}>
           <button className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#0f766e] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#115e59]">
             <LogIn size={18} />
-            Discordでログイン
+            Googleでログイン
           </button>
         </form>
         <Link
@@ -43,8 +48,15 @@ export default async function SignInPage() {
         >
           ログインせずにデモを触る
         </Link>
+        {process.env.NODE_ENV !== "production" ? (
+          <form action="/api/test-login" method="post">
+            <button className="mt-3 inline-flex w-full items-center justify-center rounded-md border border-[#b8ded9] bg-[#ecfdf9] px-4 py-3 text-sm font-semibold text-[#0f766e] transition hover:bg-[#d8f5ef]">
+              テストログイン
+            </button>
+          </form>
+        ) : null}
         <p className="mt-4 text-xs leading-5 text-[#667085]">
-          本番利用にはDiscord OAuthとNeon Postgresの環境変数が必要です。デモでは保存されません。
+          本番利用にはGoogle OAuthとNeon Postgresの環境変数が必要です。デモでは保存されません。
         </p>
       </section>
     </main>
