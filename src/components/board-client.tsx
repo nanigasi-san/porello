@@ -172,6 +172,14 @@ function findContainerId(overId: string, lists: ListView[]) {
   return null;
 }
 
+function findListIdFromDropTarget(overId: string, lists: ListView[]) {
+  if (overId.startsWith("list:")) {
+    return overId.slice(5);
+  }
+
+  return findContainerId(overId, lists);
+}
+
 function moveCardBetweenLists(lists: ListView[], cardId: string, targetListId: string, overId: string) {
   if (overId === cardDragId(cardId)) {
     return lists;
@@ -377,12 +385,14 @@ function SortableList({
   list,
   onOpenCard,
   onCreateCard,
+  onRenameList,
   onDeleteList,
   dragDisabled,
 }: {
   list: ListView;
   onOpenCard: (card: CardView) => void;
   onCreateCard: (listId: string, formData: FormData) => void;
+  onRenameList: (listId: string, formData: FormData) => void;
   onDeleteList: (listId: string) => void;
   dragDisabled: boolean;
 }) {
@@ -417,13 +427,21 @@ function SortableList({
         >
           <GripVertical size={17} />
         </button>
-        <form action={renameList.bind(null, list.id)} className="min-w-0 flex-1">
+        <form action={onRenameList.bind(null, list.id)} className="min-w-0 flex-1">
           <input
             name="title"
             defaultValue={list.title}
             maxLength={120}
             className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm font-semibold text-[#101828] outline-none transition focus:border-[#0f766e] focus:bg-white"
             aria-label="リスト名"
+            onBlur={(event) => event.currentTarget.form?.requestSubmit()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+                event.currentTarget.blur();
+              }
+            }}
           />
         </form>
         <span className="mt-1 rounded bg-white px-2 py-1 text-xs text-[#667085]">{list.cards.length}</span>
@@ -1162,9 +1180,15 @@ export function BoardClient({ board }: { board: BoardView }) {
       return;
     }
 
-    if (active.type === "list" && overId.startsWith("list:")) {
+    if (active.type === "list") {
+      const targetListId = findListIdFromDropTarget(overId, lists);
+
+      if (!targetListId) {
+        return;
+      }
+
       const oldIndex = lists.findIndex((list) => list.id === active.id);
-      const newIndex = lists.findIndex((list) => list.id === overId.slice(5));
+      const newIndex = lists.findIndex((list) => list.id === targetListId);
 
       if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) {
         return;
@@ -1279,6 +1303,21 @@ export function BoardClient({ board }: { board: BoardView }) {
     });
   }
 
+  function handleRenameList(listId: string, formData: FormData) {
+    const title = String(formData.get("title") ?? "").trim();
+
+    if (!title) {
+      return;
+    }
+
+    setLists((current) =>
+      current.map((list) => (list.id === listId && list.title !== title ? { ...list, title } : list)),
+    );
+    startTransition(() => {
+      void renameList(listId, formData);
+    });
+  }
+
   function handleDeleteList(listId: string) {
     setLists((current) => current.filter((list) => list.id !== listId));
     startTransition(() => {
@@ -1379,6 +1418,7 @@ export function BoardClient({ board }: { board: BoardView }) {
                   list={list}
                   onOpenCard={setSelectedCard}
                   onCreateCard={handleCreateCard}
+                  onRenameList={handleRenameList}
                   onDeleteList={handleDeleteList}
                   dragDisabled={isFiltering}
                 />

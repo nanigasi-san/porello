@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 async function login(page: Page) {
   await page.goto("/signin");
@@ -24,6 +24,26 @@ async function openBoardMenu(page: Page) {
 async function openListMenu(page: Page, listName: string) {
   const list = page.getByRole("region", { name: `リスト ${listName}` });
   await list.getByRole("button", { name: "リストメニュー" }).click();
+}
+
+function listRegion(page: Page, listName: string) {
+  return page.getByRole("region", { name: `リスト ${listName}` });
+}
+
+async function dragToLocator(page: Page, source: Locator, target: Locator) {
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+
+  if (!sourceBox || !targetBox) {
+    throw new Error("Missing drag target bounds.");
+  }
+
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, {
+    steps: 18,
+  });
+  await page.mouse.up();
 }
 
 test.describe("authenticated CRUD", () => {
@@ -62,6 +82,59 @@ test.describe("authenticated CRUD", () => {
     await openListMenu(page, listName);
     await page.getByRole("button", { name: "削除" }).click();
     await expect(page.getByRole("region", { name: `リスト ${listName}` })).not.toBeVisible();
+
+    await openBoardMenu(page);
+    await page.getByTestId("delete-board-button").click();
+    await expect(page).toHaveURL(/\/boards$/);
+  });
+
+  test("renames and reorders lists", async ({ page }) => {
+    const suffix = Date.now();
+    const boardName = `E2E list controls board ${suffix}`;
+    const firstListName = `Alpha ${suffix}`;
+    const secondListName = `Beta ${suffix}`;
+    const renamedListName = `Renamed ${suffix}`;
+
+    await login(page);
+    await createBoard(page, boardName);
+
+    for (const listName of [firstListName, secondListName]) {
+      await page.getByPlaceholder("新しいリスト").fill(listName);
+      await page.getByRole("button", { name: "リストを追加" }).click();
+      await expect(listRegion(page, listName)).toBeVisible();
+    }
+
+    await listRegion(page, firstListName).getByLabel("リスト名").fill(renamedListName);
+    await listRegion(page, firstListName).getByLabel("リスト名").press("Enter");
+    await expect(listRegion(page, renamedListName)).toBeVisible();
+
+    await dragToLocator(
+      page,
+      listRegion(page, renamedListName).getByRole("button", { name: "リストを移動" }),
+      listRegion(page, secondListName),
+    );
+
+    await expect(async () => {
+      const renamedBox = await listRegion(page, renamedListName).boundingBox();
+      const secondBox = await listRegion(page, secondListName).boundingBox();
+
+      if (!renamedBox || !secondBox) {
+        throw new Error("Missing list bounds.");
+      }
+
+      expect(secondBox.x).toBeLessThan(renamedBox.x);
+    }).toPass();
+
+    await page.reload();
+    await expect(listRegion(page, renamedListName)).toBeVisible();
+    const renamedBoxAfterReload = await listRegion(page, renamedListName).boundingBox();
+    const secondBoxAfterReload = await listRegion(page, secondListName).boundingBox();
+
+    if (!renamedBoxAfterReload || !secondBoxAfterReload) {
+      throw new Error("Missing list bounds after reload.");
+    }
+
+    expect(secondBoxAfterReload.x).toBeLessThan(renamedBoxAfterReload.x);
 
     await openBoardMenu(page);
     await page.getByTestId("delete-board-button").click();
