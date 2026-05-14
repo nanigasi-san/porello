@@ -33,7 +33,7 @@ Porello is an original kanban board MVP built for Vercel. It provides private bo
 
 Google callback URLs:
 
-- Local: `http://localhost:3000/api/auth/callback/google`
+- Local: `http://localhost:3100/api/auth/callback/google`
 - Production: `https://<vercel-domain>/api/auth/callback/google`
 
 ## Verification

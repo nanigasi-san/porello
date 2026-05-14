@@ -88,6 +88,27 @@ test.describe("authenticated CRUD", () => {
     await expect(page).toHaveURL(/\/boards$/);
   });
 
+  test("configures and removes a Discord webhook", async ({ page }) => {
+    const boardName = `E2E discord board ${Date.now()}`;
+
+    await login(page);
+    await createBoard(page, boardName);
+
+    await openBoardMenu(page);
+    await page.getByPlaceholder("Discord Webhook URL").fill("https://discord.com/api/webhooks/123456/test-token");
+    await page.getByRole("button", { name: "保存" }).last().click();
+
+    await openBoardMenu(page);
+    await expect(page.getByText("設定済み")).toBeVisible();
+    await page.getByRole("button", { name: "Discord通知を削除" }).click();
+
+    await openBoardMenu(page);
+    await expect(page.getByText("設定済み")).not.toBeVisible();
+
+    await page.getByTestId("delete-board-button").click();
+    await expect(page).toHaveURL(/\/boards$/);
+  });
+
   test("renames and reorders lists", async ({ page }) => {
     const suffix = Date.now();
     const boardName = `E2E list controls board ${suffix}`;

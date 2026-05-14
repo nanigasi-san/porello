@@ -11,6 +11,13 @@ import {
   getOwnedListOrThrow,
 } from "@/lib/data";
 import type { CardCommentView, ChecklistItemView, LabelView, UserSummary } from "@/lib/data";
+import {
+  deleteBoardDiscordWebhook,
+  notifyCardAssigned,
+  prepareCardMoveNotifications,
+  sendCardMoveNotifications,
+  setBoardDiscordWebhook,
+} from "@/lib/discord-notifications";
 import { hasSameMembers, normalizeTitle, toPosition } from "@/lib/reorder";
 import { getCurrentSession } from "@/lib/session";
 import {
@@ -125,6 +132,21 @@ export async function renameBoard(boardId: string, formData: FormData) {
     .where(and(eq(boards.id, boardId), eq(boards.ownerId, userId)));
 
   revalidatePath("/boards");
+  revalidatePath(`/boards/${boardId}`);
+}
+
+export async function saveBoardDiscordWebhook(boardId: string, formData: FormData) {
+  const userId = await requireUserId();
+  const webhookUrl = String(formData.get("webhookUrl") ?? "");
+
+  await setBoardDiscordWebhook(boardId, userId, webhookUrl);
+  revalidatePath(`/boards/${boardId}`);
+}
+
+export async function removeBoardDiscordWebhook(boardId: string) {
+  const userId = await requireUserId();
+
+  await deleteBoardDiscordWebhook(boardId, userId);
   revalidatePath(`/boards/${boardId}`);
 }
 
@@ -266,9 +288,12 @@ export async function updateCard(cardId: string, formData: FormData) {
   const description = String(formData.get("description") ?? "").trim();
   const dueAt = normalizeDateTime(formData.get("dueAt"));
   const assigneeId = normalizeOptionalUserId(formData.get("assigneeId"));
+  let previousAssigneeId: string | null = null;
 
   if (!process.env.DATABASE_URL) {
-    await updateSqliteCard(cardId, userId, title, description, dueAt, assigneeId);
+    const result = await updateSqliteCard(cardId, userId, title, description, dueAt, assigneeId);
+    previousAssigneeId = result.previousAssigneeId;
+    await notifyCardAssigned(cardId, userId, previousAssigneeId, assigneeId);
     revalidatePath("/boards");
     return {
       title,
@@ -281,7 +306,8 @@ export async function updateCard(cardId: string, formData: FormData) {
   }
 
   const db = getDb();
-  const { list } = await getOwnedCardOrThrow(cardId, userId);
+  const { card, list } = await getOwnedCardOrThrow(cardId, userId);
+  previousAssigneeId = card.assigneeId;
   let assignee: UserSummary | null = null;
 
   if (assigneeId) {
@@ -294,6 +320,7 @@ export async function updateCard(cardId: string, formData: FormData) {
     .set({ title, description, dueAt, assigneeId: assignee ? assignee.id : null, updatedAt: new Date() })
     .where(eq(cards.id, cardId));
   await db.update(boards).set({ updatedAt: new Date() }).where(eq(boards.id, list.boardId));
+  await notifyCardAssigned(cardId, userId, previousAssigneeId, assignee?.id ?? null);
   revalidatePath(`/boards/${list.boardId}`);
   return {
     title,
@@ -601,9 +628,11 @@ export async function reorderLists(boardId: string, listIds: string[]) {
 
 export async function reorderCards(boardId: string, updates: CardOrderUpdate[]) {
   const userId = await requireUserId();
+  const moveNotifications = await prepareCardMoveNotifications(boardId, userId, updates);
 
   if (!process.env.DATABASE_URL) {
     await reorderSqliteCards(boardId, userId, updates);
+    await sendCardMoveNotifications(moveNotifications);
     revalidatePath(`/boards/${boardId}`);
     return;
   }
@@ -653,5 +682,6 @@ export async function reorderCards(boardId: string, updates: CardOrderUpdate[]) 
     await tx.update(boards).set({ updatedAt: new Date() }).where(eq(boards.id, boardId));
   });
 
+  await sendCardMoveNotifications(moveNotifications);
   revalidatePath(`/boards/${boardId}`);
 }

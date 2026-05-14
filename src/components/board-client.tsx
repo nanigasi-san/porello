@@ -55,9 +55,11 @@ import {
   deleteChecklistItem,
   deleteList,
   detachLabelFromCard,
+  removeBoardDiscordWebhook,
   renameBoard,
   renameList,
   reorderCards,
+  saveBoardDiscordWebhook,
   reorderLists,
   updateCard,
   updateChecklistItem,
@@ -252,7 +254,7 @@ function BoardMenu({ board }: { board: BoardView }) {
       >
         <MoreHorizontal size={18} />
       </summary>
-      <div className="absolute right-0 top-12 z-20 w-72 rounded-lg border border-[#d8dee9] bg-white p-3 shadow-xl">
+      <div className="absolute right-0 top-12 z-20 w-80 rounded-lg border border-[#d8dee9] bg-white p-3 shadow-xl">
         <form action={renameBoard.bind(null, board.id)} className="space-y-2">
           <label className="text-xs font-semibold uppercase text-[#667085]">ボード名</label>
           <input
@@ -266,6 +268,32 @@ function BoardMenu({ board }: { board: BoardView }) {
             保存
           </button>
         </form>
+        <form action={saveBoardDiscordWebhook.bind(null, board.id)} className="mt-3 space-y-2 border-t border-[#eef1f6] pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-xs font-semibold uppercase text-[#667085]">Discord通知</label>
+            {board.discordWebhookConfigured ? (
+              <span className="rounded bg-[#eef6f5] px-2 py-1 text-[11px] font-medium text-[#0f766e]">設定済み</span>
+            ) : null}
+          </div>
+          <input
+            name="webhookUrl"
+            type="password"
+            placeholder={board.discordWebhookConfigured ? "新しいWebhook URL" : "Discord Webhook URL"}
+            className="w-full rounded-md border border-[#d8dee9] px-3 py-2 text-sm outline-none focus:border-[#0f766e]"
+          />
+          <button className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#0f766e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#115e59]">
+            <Save size={15} />
+            保存
+          </button>
+        </form>
+        {board.discordWebhookConfigured ? (
+          <form action={removeBoardDiscordWebhook.bind(null, board.id)} className="mt-2">
+            <button className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#d8dee9] bg-white px-3 py-2 text-sm font-semibold text-[#475467] transition hover:border-[#a8b2c1] hover:text-[#101828]">
+              <Trash2 size={15} />
+              Discord通知を削除
+            </button>
+          </form>
+        ) : null}
         <form action={deleteBoard.bind(null, board.id)} className="mt-3 border-t border-[#eef1f6] pt-3">
           <button
             data-testid="delete-board-button"

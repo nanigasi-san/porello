@@ -5,6 +5,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -162,3 +163,39 @@ export const cardAttachments = pgTable("card_attachments", {
   storageKey: text("storage_key").notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
 });
+
+export const boardDiscordWebhooks = pgTable(
+  "board_discord_webhooks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    boardId: uuid("board_id")
+      .notNull()
+      .references(() => boards.id, { onDelete: "cascade" }),
+    webhookUrl: text("webhook_url").notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+  },
+  (webhook) => ({
+    boardIdUnique: uniqueIndex("board_discord_webhooks_board_id_unique").on(webhook.boardId),
+  }),
+);
+
+export const discordDeadlineNotifications = pgTable(
+  "discord_deadline_notifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    cardId: uuid("card_id")
+      .notNull()
+      .references(() => cards.id, { onDelete: "cascade" }),
+    dueAt: timestamp("due_at", { mode: "date" }).notNull(),
+    notificationType: varchar("notification_type", { length: 40 }).notNull(),
+    sentAt: timestamp("sent_at", { mode: "date" }).defaultNow().notNull(),
+  },
+  (notification) => ({
+    cardDueTypeUnique: uniqueIndex("discord_deadline_notifications_card_due_type_unique").on(
+      notification.cardId,
+      notification.dueAt,
+      notification.notificationType,
+    ),
+  }),
+);

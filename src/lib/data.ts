@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 import { getDb } from "@/db";
 import {
+  boardDiscordWebhooks,
   boards,
   cardAttachments,
   cardChecklistItems,
@@ -12,7 +13,7 @@ import {
   lists,
   users,
 } from "@/db/schema";
-import { getSqliteBoardForUser, getSqliteBoardsForUser } from "@/lib/sqlite-store";
+import { getSqliteBoardForUser, getSqliteBoardsForUser, hasSqliteBoardDiscordWebhook } from "@/lib/sqlite-store";
 
 export type BoardSummary = typeof boards.$inferSelect & {
   listCount: number;
@@ -47,6 +48,7 @@ export type BoardView = typeof boards.$inferSelect & {
   lists: ListView[];
   labels: LabelView[];
   members: UserSummary[];
+  discordWebhookConfigured: boolean;
 };
 
 export type BoardUserIdentity = {
@@ -93,7 +95,13 @@ export async function getBoardForUser(
   noStore();
 
   if (!process.env.DATABASE_URL) {
-    return getSqliteBoardForUser(boardId, userId, user);
+    const board = await getSqliteBoardForUser(boardId, userId, user);
+    return board
+      ? {
+          ...board,
+          discordWebhookConfigured: await hasSqliteBoardDiscordWebhook(boardId, userId),
+        }
+      : null;
   }
 
   const db = getDb();
@@ -125,7 +133,8 @@ export async function getBoardForUser(
       : [];
   const cardIds = boardCards.map((card) => card.id);
 
-  const [boardLabels, labelLinks, checklistRows, commentRows, attachmentRows, memberRows] = await Promise.all([
+  const [boardLabels, labelLinks, checklistRows, commentRows, attachmentRows, memberRows, discordWebhookRows] =
+    await Promise.all([
     db.select().from(labels).where(eq(labels.boardId, boardId)).orderBy(labels.name, labels.createdAt),
     cardIds.length > 0
       ? db
@@ -177,6 +186,11 @@ export async function getBoardForUser(
       })
       .from(users)
       .orderBy(users.name, users.email),
+    db
+      .select({ id: boardDiscordWebhooks.id })
+      .from(boardDiscordWebhooks)
+      .where(eq(boardDiscordWebhooks.boardId, boardId))
+      .limit(1),
   ]);
 
   const memberById = new Map(memberRows.map((member) => [member.id, member]));
@@ -234,6 +248,7 @@ export async function getBoardForUser(
     ...board,
     labels: boardLabels,
     members: memberRows,
+    discordWebhookConfigured: discordWebhookRows.length > 0,
     lists: boardLists.map((list) => ({
       ...list,
       cards: boardCards.filter((card) => card.listId === list.id).map(hydrateCard),

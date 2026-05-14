@@ -96,6 +96,14 @@ type CardAttachmentRow = {
   created_at: string;
 };
 
+type BoardDiscordWebhookRow = {
+  id: string;
+  board_id: string;
+  webhook_url: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type CardOrderUpdate = {
   listId: string;
   cardIds: string[];
@@ -199,6 +207,22 @@ function getSqlite() {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS board_discord_webhooks (
+        id TEXT PRIMARY KEY,
+        board_id TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+        webhook_url TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS discord_deadline_notifications (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+        due_at TEXT NOT NULL,
+        notification_type TEXT NOT NULL,
+        sent_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS boards_owner_idx ON boards(owner_id);
       CREATE INDEX IF NOT EXISTS lists_board_position_idx ON lists(board_id, position);
       CREATE INDEX IF NOT EXISTS cards_list_position_idx ON cards(list_id, position);
@@ -206,6 +230,9 @@ function getSqlite() {
       CREATE INDEX IF NOT EXISTS checklist_card_position_idx ON card_checklist_items(card_id, position);
       CREATE INDEX IF NOT EXISTS comments_card_created_idx ON card_comments(card_id, created_at);
       CREATE INDEX IF NOT EXISTS attachments_card_created_idx ON card_attachments(card_id, created_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS board_discord_webhooks_board_unique ON board_discord_webhooks(board_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS discord_deadline_notifications_card_due_type_unique
+        ON discord_deadline_notifications(card_id, due_at, notification_type);
     `);
     addColumnIfMissing(sqlite, "cards", "due_at", "TEXT");
     addColumnIfMissing(sqlite, "cards", "assignee_id", "TEXT");
@@ -222,7 +249,7 @@ function id(prefix: string) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
-function boardFromRow(row: BoardRow): Omit<BoardView, "lists" | "labels" | "members"> {
+function boardFromRow(row: BoardRow): Omit<BoardView, "lists" | "labels" | "members" | "discordWebhookConfigured"> {
   return {
     id: row.id,
     ownerId: row.owner_id,
@@ -551,6 +578,7 @@ export async function getSqliteBoardForUser(
     ...boardFromRow(boardRow),
     labels: boardLabels,
     members: userRows.map(userFromRow),
+    discordWebhookConfigured: false,
     lists: listRows.map((listRow) => ({
       ...listFromRow(listRow),
       cards: cardRows.filter((card) => card.list_id === listRow.id).map(hydrateCard),
@@ -576,6 +604,35 @@ export async function createSqliteBoard(userId: string, title: string) {
 export async function renameSqliteBoard(boardId: string, userId: string, title: string) {
   ownedBoard(boardId, userId);
   getSqlite().prepare("UPDATE boards SET title = ?, updated_at = ? WHERE id = ?").run(title, timestamp(), boardId);
+}
+
+export async function getSqliteBoardDiscordWebhook(boardId: string, userId: string) {
+  ownedBoard(boardId, userId);
+  const row = getSqlite()
+    .prepare("SELECT * FROM board_discord_webhooks WHERE board_id = ?")
+    .get(boardId) as BoardDiscordWebhookRow | undefined;
+
+  return row?.webhook_url ?? null;
+}
+
+export async function hasSqliteBoardDiscordWebhook(boardId: string, userId: string) {
+  return Boolean(await getSqliteBoardDiscordWebhook(boardId, userId));
+}
+
+export async function setSqliteBoardDiscordWebhook(boardId: string, userId: string, webhookUrl: string) {
+  ownedBoard(boardId, userId);
+  const db = getSqlite();
+  const time = timestamp();
+  db.prepare(
+    `INSERT INTO board_discord_webhooks (id, board_id, webhook_url, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(board_id) DO UPDATE SET webhook_url = excluded.webhook_url, updated_at = excluded.updated_at`,
+  ).run(id("discord_webhook"), boardId, webhookUrl, time, time);
+}
+
+export async function deleteSqliteBoardDiscordWebhook(boardId: string, userId: string) {
+  ownedBoard(boardId, userId);
+  getSqlite().prepare("DELETE FROM board_discord_webhooks WHERE board_id = ?").run(boardId);
 }
 
 export async function deleteSqliteBoard(boardId: string, userId: string) {
@@ -681,6 +738,7 @@ export async function updateSqliteCard(
     cardId,
   );
   db.prepare("UPDATE boards SET updated_at = ? WHERE id = ?").run(time, card.board_id);
+  return { previousAssigneeId: card.assignee_id };
 }
 
 export async function deleteSqliteCard(cardId: string, userId: string) {
@@ -997,4 +1055,111 @@ export async function reorderSqliteCards(boardId: string, userId: string, update
     });
     updateBoard.run(time, boardId);
   })();
+}
+
+export type SqliteNotificationCardRow = CardRow & {
+  board_id: string;
+  board_title: string;
+  list_title: string;
+  assignee_name: string | null;
+  assignee_email: string | null;
+  webhook_url: string;
+};
+
+export function getSqliteCardForDiscordNotification(cardId: string, userId: string) {
+  ownedCard(cardId, userId);
+  return getSqlite()
+    .prepare(
+      `SELECT
+        cards.*,
+        lists.board_id,
+        lists.title AS list_title,
+        boards.title AS board_title,
+        users.name AS assignee_name,
+        users.email AS assignee_email,
+        board_discord_webhooks.webhook_url
+       FROM cards
+       INNER JOIN lists ON lists.id = cards.list_id
+       INNER JOIN boards ON boards.id = lists.board_id
+       INNER JOIN board_discord_webhooks ON board_discord_webhooks.board_id = boards.id
+       LEFT JOIN users ON users.id = cards.assignee_id
+       WHERE cards.id = ? AND boards.owner_id = ?`,
+    )
+    .get(cardId, userId) as SqliteNotificationCardRow | undefined;
+}
+
+export function getSqliteCardsForDiscordMoveNotifications(boardId: string, userId: string) {
+  ownedBoard(boardId, userId);
+  return getSqlite()
+    .prepare(
+      `SELECT
+        cards.*,
+        lists.board_id,
+        lists.title AS list_title,
+        boards.title AS board_title,
+        users.name AS assignee_name,
+        users.email AS assignee_email,
+        board_discord_webhooks.webhook_url
+       FROM cards
+       INNER JOIN lists ON lists.id = cards.list_id
+       INNER JOIN boards ON boards.id = lists.board_id
+       INNER JOIN board_discord_webhooks ON board_discord_webhooks.board_id = boards.id
+       LEFT JOIN users ON users.id = cards.assignee_id
+       WHERE boards.id = ? AND boards.owner_id = ?`,
+    )
+    .all(boardId, userId) as SqliteNotificationCardRow[];
+}
+
+export function getSqliteListTitlesForDiscordMoveNotifications(boardId: string, userId: string) {
+  ownedBoard(boardId, userId);
+  return getSqlite()
+    .prepare(
+      `SELECT lists.id, lists.title
+       FROM lists
+       INNER JOIN boards ON boards.id = lists.board_id
+       WHERE boards.id = ? AND boards.owner_id = ?`,
+    )
+    .all(boardId, userId) as { id: string; title: string }[];
+}
+
+export type SqliteDeadlineNotificationRow = SqliteNotificationCardRow & {
+  due_at: string;
+};
+
+export function getSqliteDueDiscordNotifications(now: Date, until: Date) {
+  return getSqlite()
+    .prepare(
+      `SELECT
+        cards.*,
+        lists.board_id,
+        lists.title AS list_title,
+        boards.title AS board_title,
+        users.name AS assignee_name,
+        users.email AS assignee_email,
+        board_discord_webhooks.webhook_url
+       FROM cards
+       INNER JOIN lists ON lists.id = cards.list_id
+       INNER JOIN boards ON boards.id = lists.board_id
+       INNER JOIN board_discord_webhooks ON board_discord_webhooks.board_id = boards.id
+       LEFT JOIN users ON users.id = cards.assignee_id
+       LEFT JOIN discord_deadline_notifications
+         ON discord_deadline_notifications.card_id = cards.id
+        AND discord_deadline_notifications.due_at = cards.due_at
+        AND discord_deadline_notifications.notification_type = 'due_soon'
+       WHERE cards.due_at IS NOT NULL
+         AND cards.due_at > ?
+         AND cards.due_at <= ?
+         AND lower(trim(lists.title)) <> 'done'
+         AND discord_deadline_notifications.id IS NULL`,
+    )
+    .all(now.toISOString(), until.toISOString()) as SqliteDeadlineNotificationRow[];
+}
+
+export function recordSqliteDiscordDeadlineNotification(cardId: string, dueAt: Date) {
+  getSqlite()
+    .prepare(
+      `INSERT OR IGNORE INTO discord_deadline_notifications (id, card_id, due_at, notification_type, sent_at)
+       VALUES (?, ?, ?, 'due_soon', ?)`,
+    )
+    .run(id("discord_deadline"), cardId, dueAt.toISOString(), timestamp());
 }
