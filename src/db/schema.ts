@@ -1,4 +1,5 @@
 import {
+  boolean,
   integer,
   pgTable,
   primaryKey,
@@ -90,7 +91,74 @@ export const cards = pgTable("cards", {
     .references(() => lists.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 180 }).notNull(),
   description: text("description").default("").notNull(),
+  dueAt: timestamp("due_at", { mode: "date" }),
+  assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
   position: integer("position").notNull(),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+});
+
+export const labels = pgTable("labels", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  boardId: uuid("board_id")
+    .notNull()
+    .references(() => boards.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 40 }).notNull(),
+  color: varchar("color", { length: 24 }).default("#0f766e").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+});
+
+export const cardLabels = pgTable(
+  "card_labels",
+  {
+    cardId: uuid("card_id")
+      .notNull()
+      .references(() => cards.id, { onDelete: "cascade" }),
+    labelId: uuid("label_id")
+      .notNull()
+      .references(() => labels.id, { onDelete: "cascade" }),
+  },
+  (cardLabel) => ({
+    compoundKey: primaryKey({
+      columns: [cardLabel.cardId, cardLabel.labelId],
+    }),
+  }),
+);
+
+export const cardChecklistItems = pgTable("card_checklist_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  cardId: uuid("card_id")
+    .notNull()
+    .references(() => cards.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 200 }).notNull(),
+  completed: boolean("completed").default(false).notNull(),
+  position: integer("position").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+});
+
+export const cardComments = pgTable("card_comments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  cardId: uuid("card_id")
+    .notNull()
+    .references(() => cards.id, { onDelete: "cascade" }),
+  authorId: text("author_id").references(() => users.id, { onDelete: "set null" }),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
+});
+
+export const cardAttachments = pgTable("card_attachments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  cardId: uuid("card_id")
+    .notNull()
+    .references(() => cards.id, { onDelete: "cascade" }),
+  uploaderId: text("uploader_id").references(() => users.id, { onDelete: "set null" }),
+  filename: varchar("filename", { length: 240 }).notNull(),
+  contentType: varchar("content_type", { length: 120 }).default("application/octet-stream").notNull(),
+  size: integer("size").notNull(),
+  storageProvider: varchar("storage_provider", { length: 20 }).notNull(),
+  storageKey: text("storage_key").notNull(),
+  createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
 });

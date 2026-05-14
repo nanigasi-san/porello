@@ -20,6 +20,7 @@
     "@dnd-kit/sortable": "latest",
     "@dnd-kit/utilities": "latest",
     "@neondatabase/serverless": "latest",
+    "@vercel/blob": "^2.3.3",
     "better-sqlite3": "^12.10.0",
     "class-variance-authority": "latest",
     "clsx": "latest",

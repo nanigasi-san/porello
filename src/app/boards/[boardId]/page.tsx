@@ -15,7 +15,7 @@ export default async function BoardPage({
     redirect("/signin");
   }
 
-  const board = await getBoardForUser(boardId, session.user.id);
+  const board = await getBoardForUser(boardId, session.user.id, session.user);
 
   if (!board) {
     notFound();
