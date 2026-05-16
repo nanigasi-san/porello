@@ -54,6 +54,19 @@ test.describe("authenticated CRUD", () => {
     await expect(page.getByPlaceholder("新しいボード名")).toBeVisible();
   });
 
+  test("updates the user display name from settings", async ({ page }) => {
+    const displayName = `Display ${Date.now()}`;
+
+    await login(page);
+    await page.getByRole("link", { name: /Test User/ }).click();
+    await expect(page.getByRole("heading", { name: "設定" })).toBeVisible();
+    await page.getByLabel("表示名").fill(displayName);
+    await page.getByRole("button", { name: "保存" }).click();
+    await expect(page.getByRole("status")).toHaveText("表示名を保存しました。");
+    await page.goto("/boards");
+    await expect(page.getByRole("link", { name: new RegExp(displayName) })).toBeVisible();
+  });
+
   test("creates and deletes a board", async ({ page }) => {
     const boardName = `E2E board ${Date.now()}`;
 

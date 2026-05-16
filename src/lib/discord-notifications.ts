@@ -144,16 +144,17 @@ export async function notifyCardAssigned(cardId: string, userId: string, previou
   }
 
   const assigneeLabel = card.assigneeName ?? card.assigneeEmail ?? "担当者";
+  const title = assignedNotificationTitle(card.title, assigneeLabel);
   await sendDiscordWebhook(
     card.webhookUrl,
     {
-      title: assignedNotificationTitle(card.title, assigneeLabel),
+      title,
       color: 0x0f766e,
       url: cardUrl(card),
       fields: notificationFields(card),
       timestamp: new Date().toISOString(),
     },
-    buildAssignedDiscordWebhookOptions(card.title, assigneeLabel, card.assigneeDiscordUserId),
+    buildDiscordAssigneeMentionOptions(title, card.assigneeDiscordUserId),
   );
 }
 
@@ -192,19 +193,24 @@ export async function prepareCardMoveNotifications(boardId: string, userId: stri
 
 export async function sendCardMoveNotifications(notifications: CardMoveNotification[]) {
   await Promise.all(
-    notifications.map((notification) =>
-      sendDiscordWebhook(notification.card.webhookUrl, {
-        title: movedNotificationTitle(notification.card.title, notification.toListTitle),
-        color: notification.status === "done" ? 0x16a34a : 0x2563eb,
-        url: cardUrl(notification.card),
-        fields: [
-          ...notificationFields(notification.card),
-          { name: "移動元", value: notification.fromListTitle, inline: true },
-          { name: "移動先", value: notification.toListTitle, inline: true },
-        ],
-        timestamp: new Date().toISOString(),
-      }),
-    ),
+    notifications.map((notification) => {
+      const title = movedNotificationTitle(notification.card.title, notification.toListTitle);
+      return sendDiscordWebhook(
+        notification.card.webhookUrl,
+        {
+          title,
+          color: notification.status === "done" ? 0x16a34a : 0x2563eb,
+          url: cardUrl(notification.card),
+          fields: [
+            ...notificationFields(notification.card),
+            { name: "移動元", value: notification.fromListTitle, inline: true },
+            { name: "移動先", value: notification.toListTitle, inline: true },
+          ],
+          timestamp: new Date().toISOString(),
+        },
+        buildDiscordAssigneeMentionOptions(title, notification.card.assigneeDiscordUserId),
+      );
+    }),
   );
 }
 
@@ -214,17 +220,22 @@ export async function sendDueSoonDiscordNotifications(now = new Date()) {
   let sent = 0;
 
   for (const card of dueCards) {
-    const didSend = await sendDiscordWebhook(card.webhookUrl, {
-      title: dueSoonNotificationTitle(card.title),
-      description: "締め切りが24時間以内です。",
-      color: 0xf59e0b,
-      url: cardUrl(card),
-      fields: [
-        ...notificationFields(card),
-        { name: "締め切り", value: card.dueAt ? formatDateTime(card.dueAt) : "未設定", inline: true },
-      ],
-      timestamp: new Date().toISOString(),
-    });
+    const title = dueSoonNotificationTitle(card.title);
+    const didSend = await sendDiscordWebhook(
+      card.webhookUrl,
+      {
+        title,
+        description: "締め切りが24時間以内です。",
+        color: 0xf59e0b,
+        url: cardUrl(card),
+        fields: [
+          ...notificationFields(card),
+          { name: "締め切り", value: card.dueAt ? formatDateTime(card.dueAt) : "未設定", inline: true },
+        ],
+        timestamp: new Date().toISOString(),
+      },
+      buildDiscordAssigneeMentionOptions(title, card.assigneeDiscordUserId),
+    );
 
     if (didSend && card.dueAt) {
       await recordDeadlineNotification(card.id, card.dueAt);
@@ -400,7 +411,7 @@ function sqliteNotificationCard(row: SqliteNotificationCardRow): NotificationCar
     listTitle: row.list_title,
     assigneeName: row.assignee_name,
     assigneeEmail: row.assignee_email,
-    assigneeDiscordUserId: null,
+    assigneeDiscordUserId: row.assignee_discord_user_id,
     webhookUrl: row.webhook_url,
   };
 }
@@ -422,12 +433,16 @@ export function assignedNotificationTitle(cardTitle: string, assigneeLabel: stri
 }
 
 export function buildAssignedDiscordWebhookOptions(cardTitle: string, assigneeLabel: string, discordUserId: string | null): DiscordWebhookOptions {
+  return buildDiscordAssigneeMentionOptions(assignedNotificationTitle(cardTitle, assigneeLabel), discordUserId);
+}
+
+export function buildDiscordAssigneeMentionOptions(notificationTitle: string, discordUserId: string | null): DiscordWebhookOptions {
   if (!discordUserId) {
     return {};
   }
 
   return {
-    content: `<@${discordUserId}> ${assignedNotificationTitle(cardTitle, assigneeLabel)}`,
+    content: `<@${discordUserId}> ${notificationTitle}`,
     allowedMentions: { users: [discordUserId] },
   };
 }

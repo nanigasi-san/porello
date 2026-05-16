@@ -40,8 +40,10 @@ import {
   renameSqliteList,
   reorderSqliteCards,
   reorderSqliteLists,
+  resetSqliteForDevelopment,
   updateSqliteChecklistItem,
   updateSqliteCard,
+  updateSqliteUserDisplayName,
 } from "@/lib/sqlite-store";
 
 type CardOrderUpdate = {
@@ -50,6 +52,11 @@ type CardOrderUpdate = {
 };
 
 export type BoardDiscordWebhookFormState = {
+  status: "idle" | "success" | "error";
+  message: string | null;
+};
+
+export type ProfileFormState = {
   status: "idle" | "success" | "error";
   message: string | null;
 };
@@ -104,6 +111,38 @@ function userSummaryFromRow(row: typeof users.$inferSelect): UserSummary {
     email: row.email,
     image: row.image,
   };
+}
+
+export async function updateProfileDisplayName(
+  _previousState: ProfileFormState,
+  formData: FormData,
+): Promise<ProfileFormState> {
+  const user = await requireSessionUser();
+  const displayName = normalizeTitle(formData.get("displayName"), "").slice(0, 80);
+
+  if (!displayName) {
+    return { status: "error", message: "表示名を入力してください。" };
+  }
+
+  if (!process.env.DATABASE_URL) {
+    await updateSqliteUserDisplayName(user, displayName);
+    revalidatePath("/settings");
+    revalidatePath("/boards");
+    return { status: "success", message: "表示名を保存しました。" };
+  }
+
+  await getDb().update(users).set({ name: displayName }).where(eq(users.id, user.id));
+  revalidatePath("/settings");
+  revalidatePath("/boards");
+  return { status: "success", message: "表示名を保存しました。" };
+}
+
+export async function resetLocalDatabase() {
+  await requireUserId();
+  resetSqliteForDevelopment();
+  revalidatePath("/boards");
+  revalidatePath("/settings");
+  redirect("/");
 }
 
 export async function createBoard(formData: FormData) {

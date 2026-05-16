@@ -73,7 +73,7 @@ Unit tests は `src/lib/**/*.test.ts` を中心に置く。DB、外部 API、ブ
 - Discord Webhook URL validation
 - `notificationListStatus`
 - 通知タイトル生成
-- アサイン通知のDiscordメンションpayload生成
+- カード通知のDiscordメンションpayload生成
 - カード URL 生成
 
 検証内容:
@@ -83,8 +83,8 @@ Unit tests は `src/lib/**/*.test.ts` を中心に置く。DB、外部 API、ブ
 - `doing` と `done` は大文字小文字と前後空白を吸収して判定する。
 - `Doing 1`, `Done済み`, `todo` は通知対象外にする。
 - アサイン通知タイトルは `[task] に [user] がアサインされました` にする。
-- Discord user id があるアサイン通知は `content` に `<@userId>` を含め、`allowed_mentions.users` を対象ユーザーだけにする。
-- Discord user id がないアサイン通知はメンションpayloadを生成しない。
+- Discord user id があるカード通知は `content` に `<@userId>` を含め、`allowed_mentions.users` を対象ユーザーだけにする。
+- Discord user id がないカード通知はメンションpayloadを生成しない。
 - 移動通知タイトルは `[task] が [list] に移動されました` にする。
 - 期限通知タイトルは `[task] の締め切りが近づいています` にする。
 - `AUTH_URL` の末尾 slash 有無に関係なく `/boards/{boardId}?card={cardId}` を生成する。
@@ -126,6 +126,8 @@ Integration tests は SQLite 保存層と業務ロジックの接続を検証す
 - リスト作成、改名、削除
 - カード作成、更新、削除
 - ローカル user 表示名の更新
+- 設定画面用のローカル user 表示名保存
+- 開発用SQLite DBリセット
 - Discord webhook 設定
 - 期限通知ログ
 
@@ -135,12 +137,14 @@ Integration tests は SQLite 保存層と業務ロジックの接続を検証す
 - リスト操作は対象ボード配下に限定される。
 - カード操作は対象リスト配下に限定される。
 - 担当者更新時に SQLite `users` の表示名が更新され、カード上の担当者名が ID 表示に落ちない。
+- 表示名更新時に SQLite `users.name` が保存され、再取得できる。
+- 開発用DBリセットはSQLiteファイルを削除し、再初期化後にボード一覧が空になる。
 - Discord webhook URL はボード単位で保存、更新、削除、取得できる。
 - 期限通知ログは同じ `cardId + dueAt + notificationType` の重複通知を防ぐ。
 
 更新基準:
 
-- 保存層の業務ルール、所有者判定、ローカルユーザー同期、Webhook 永続化、期限通知ログを変える場合は、このテストを更新する。
+- 保存層の業務ルール、所有者判定、ローカルユーザー同期、プロフィール保存、開発用DBリセット、Webhook 永続化、期限通知ログを変える場合は、このテストを更新する。
 
 ### `src/lib/discord-notifications.integration.test.ts`
 
@@ -157,7 +161,8 @@ Integration tests は SQLite 保存層と業務ロジックの接続を検証す
 - 同一リスト内の並び替えでは通知候補を返さない。
 - Webhook 未設定ボードでは通知候補を返さない。
 - アサイン通知と移動通知の embed は bracketed variable title を使い、description を入れない。
-- SQLite のアサイン通知ではDiscord account情報がないため、Webhook payload に `content` と `allowed_mentions` を入れない。
+- 非Discord形式の担当者IDでは、Webhook payload に `content` と `allowed_mentions` を入れない。
+- ローカルSQLiteで担当者の `discord_user_id` がある場合、アサイン、移動、期限Webhook payload に `<@userId>` と `allowed_mentions.users` を入れる。
 - embed にはカード詳細へ開ける URL を入れる。
 - 期限通知は24時間以内、Done以外、未通知のカードだけを送信対象にする。
 - Discord 送信失敗時は例外を投げず、成功時だけ期限通知ログを記録する。
@@ -195,6 +200,8 @@ E2E tests は `tests/**/*.spec.ts` に置く。Playwright で実際のブラウ�
 - 初期5リスト表示
 - リスト追加、改名、並び替え、削除、reload 後の保持
 - Discord webhook URL の保存、設定済み表示、削除、秘匿
+- ヘッダーから設定画面へ移動し、表示名を保存する導線
+- 設定画面に開発用DBリセットボタンを表示する導線
 - リストヘッダーのプラスボタンからカードを追加し、作成直後に詳細画面が開くこと
 - カード追加直後にタイトル入力へフォーカスし、既定タイトルが全選択されること
 - カード詳細表示、保存で閉じる、Esc で閉じる、削除

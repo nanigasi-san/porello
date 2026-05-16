@@ -56,6 +56,7 @@ export type BoardUserIdentity = {
   name?: string | null;
   email?: string | null;
   image?: string | null;
+  discordUserId?: string | null;
 };
 
 export async function getBoardsForUser(userId: string): Promise<BoardSummary[]> {

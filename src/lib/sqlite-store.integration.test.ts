@@ -12,13 +12,17 @@ import {
   deleteSqliteBoardDiscordWebhook,
   getSqliteBoardDiscordWebhook,
   getSqliteBoardForUser,
+  getSqliteBoardsForUser,
   getSqliteDueDiscordNotifications,
+  getSqliteUser,
   hasSqliteBoardDiscordWebhook,
   recordSqliteDiscordDeadlineNotification,
   renameSqliteList,
+  resetSqliteForDevelopment,
   resetSqliteForTests,
   setSqliteBoardDiscordWebhook,
   updateSqliteCard,
+  updateSqliteUserDisplayName,
 } from "./sqlite-store";
 
 const userId = "test-user";
@@ -113,6 +117,24 @@ describe("sqlite store integration", () => {
     expect(updatedCard?.assignee?.email).toBe("kaito@example.local");
   });
 
+  it("updates local user display names", async () => {
+    await updateSqliteUserDisplayName(
+      {
+        id: userId,
+        name: "Before",
+        email: "test@example.local",
+        image: null,
+      },
+      "After",
+    );
+
+    await expect(getSqliteUser(userId)).resolves.toMatchObject({
+      id: userId,
+      name: "After",
+      email: "test@example.local",
+    });
+  });
+
   it("stores, updates, and removes Discord webhooks per board", async () => {
     const first = await board();
     const secondBoardId = await createSqliteBoard(userId, "Second");
@@ -149,5 +171,15 @@ describe("sqlite store integration", () => {
     recordSqliteDiscordDeadlineNotification(card.id, dueAt);
 
     expect(getSqliteDueDiscordNotifications(new Date("2026-05-19T00:00:00.000Z"), dueAt)).toHaveLength(0);
+  });
+
+  it("resets local development data", async () => {
+    await board();
+
+    expect(await getSqliteBoardsForUser(userId)).toHaveLength(1);
+
+    resetSqliteForDevelopment();
+
+    expect(await getSqliteBoardsForUser(userId)).toHaveLength(0);
   });
 });

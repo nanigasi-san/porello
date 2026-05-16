@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import type {
   BoardSummary,
@@ -50,6 +50,7 @@ type UserRow = {
   name: string | null;
   email: string | null;
   image: string | null;
+  discord_user_id: string | null;
 };
 
 type LabelRow = {
@@ -112,6 +113,12 @@ type CardOrderUpdate = {
 
 let sqlite: Database.Database | null = null;
 
+function sqlitePath() {
+  const configuredPath = process.env.PORELLO_SQLITE_PATH;
+  const dataDir = configuredPath ? path.dirname(configuredPath) : path.join(process.cwd(), ".porello-data");
+  return configuredPath ?? path.join(dataDir, "porello.sqlite");
+}
+
 function addColumnIfMissing(db: Database.Database, table: string, column: string, definition: string) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!columns.some((candidate) => candidate.name === column)) {
@@ -121,10 +128,10 @@ function addColumnIfMissing(db: Database.Database, table: string, column: string
 
 function getSqlite() {
   if (!sqlite) {
-    const sqlitePath = process.env.PORELLO_SQLITE_PATH;
-    const dataDir = sqlitePath ? path.dirname(sqlitePath) : path.join(process.cwd(), ".porello-data");
+    const resolvedSqlitePath = sqlitePath();
+    const dataDir = path.dirname(resolvedSqlitePath);
     mkdirSync(dataDir, { recursive: true });
-    sqlite = new Database(sqlitePath ?? path.join(dataDir, "porello.sqlite"));
+    sqlite = new Database(resolvedSqlitePath);
     sqlite.pragma("journal_mode = WAL");
     sqlite.exec(`
       CREATE TABLE IF NOT EXISTS boards (
@@ -160,7 +167,8 @@ function getSqlite() {
         id TEXT PRIMARY KEY,
         name TEXT,
         email TEXT,
-        image TEXT
+        image TEXT,
+        discord_user_id TEXT
       );
 
       CREATE TABLE IF NOT EXISTS labels (
@@ -238,6 +246,7 @@ function getSqlite() {
     `);
     addColumnIfMissing(sqlite, "cards", "due_at", "TEXT");
     addColumnIfMissing(sqlite, "cards", "assignee_id", "TEXT");
+    addColumnIfMissing(sqlite, "users", "discord_user_id", "TEXT");
   }
 
   return sqlite;
@@ -250,6 +259,25 @@ export function resetSqliteForTests() {
 
   sqlite?.close();
   sqlite = null;
+}
+
+export function resetSqliteForDevelopment() {
+  if (process.env.NODE_ENV === "production" || process.env.DATABASE_URL) {
+    throw new Error("Local database reset is only available for SQLite development data.");
+  }
+
+  if (sqlite) {
+    sqlite.close();
+    sqlite = null;
+  }
+
+  const resolvedPath = sqlitePath();
+
+  for (const filePath of [resolvedPath, `${resolvedPath}-wal`, `${resolvedPath}-shm`]) {
+    if (existsSync(filePath)) {
+      rmSync(filePath, { force: true });
+    }
+  }
 }
 
 function timestamp() {
@@ -362,9 +390,10 @@ function ensureSqliteUser(userId: string, user?: BoardUserIdentity) {
   const name = user?.name ?? (userId === "local-test-user" ? "Test User" : userId);
   const email = user?.email ?? (userId === "local-test-user" ? "test@example.local" : null);
   const image = user?.image ?? null;
+  const discordUserId = user?.discordUserId ?? null;
   db.prepare(
-    `INSERT INTO users (id, name, email, image)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO users (id, name, email, image, discord_user_id)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = CASE
          WHEN excluded.name IS NOT NULL AND excluded.name <> excluded.id THEN excluded.name
@@ -372,8 +401,13 @@ function ensureSqliteUser(userId: string, user?: BoardUserIdentity) {
          ELSE users.name
        END,
        email = COALESCE(excluded.email, users.email),
-       image = COALESCE(excluded.image, users.image)`,
-  ).run(userId, name, email, image);
+       image = COALESCE(excluded.image, users.image),
+       discord_user_id = COALESCE(excluded.discord_user_id, users.discord_user_id)`,
+  ).run(userId, name, email, image, discordUserId);
+}
+
+export async function syncSqliteUser(user: BoardUserIdentity) {
+  ensureSqliteUser(user.id, user);
 }
 
 function ownedBoard(boardId: string, userId: string) {
@@ -773,6 +807,17 @@ export async function getSqliteUser(userId: string): Promise<UserSummary | null>
   return row ? userFromRow(row) : null;
 }
 
+export async function updateSqliteUserDisplayName(user: BoardUserIdentity, displayName: string): Promise<UserSummary> {
+  ensureSqliteUser(user.id, user);
+  getSqlite().prepare("UPDATE users SET name = ? WHERE id = ?").run(displayName, user.id);
+  return {
+    id: user.id,
+    name: displayName,
+    email: user.email ?? null,
+    image: user.image ?? null,
+  };
+}
+
 export async function createSqliteLabel(boardId: string, userId: string, name: string, color: string): Promise<LabelView> {
   ownedBoard(boardId, userId);
   const db = getSqlite();
@@ -1082,6 +1127,7 @@ export type SqliteNotificationCardRow = CardRow & {
   list_title: string;
   assignee_name: string | null;
   assignee_email: string | null;
+  assignee_discord_user_id: string | null;
   webhook_url: string;
 };
 
@@ -1096,6 +1142,7 @@ export function getSqliteCardForDiscordNotification(cardId: string, userId: stri
         boards.title AS board_title,
         users.name AS assignee_name,
         users.email AS assignee_email,
+        users.discord_user_id AS assignee_discord_user_id,
         board_discord_webhooks.webhook_url
        FROM cards
        INNER JOIN lists ON lists.id = cards.list_id
@@ -1118,6 +1165,7 @@ export function getSqliteCardsForDiscordMoveNotifications(boardId: string, userI
         boards.title AS board_title,
         users.name AS assignee_name,
         users.email AS assignee_email,
+        users.discord_user_id AS assignee_discord_user_id,
         board_discord_webhooks.webhook_url
        FROM cards
        INNER JOIN lists ON lists.id = cards.list_id
@@ -1155,6 +1203,7 @@ export function getSqliteDueDiscordNotifications(now: Date, until: Date) {
         boards.title AS board_title,
         users.name AS assignee_name,
         users.email AS assignee_email,
+        users.discord_user_id AS assignee_discord_user_id,
         board_discord_webhooks.webhook_url
        FROM cards
        INNER JOIN lists ON lists.id = cards.list_id

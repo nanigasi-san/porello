@@ -60,9 +60,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
       signIn: "/signin",
     },
     callbacks: {
+      jwt({ token, account }) {
+        if (account?.provider === "discord") {
+          token.discordUserId = account.providerAccountId;
+        }
+
+        return token;
+      },
       session({ session, token, user }) {
         if (session.user) {
           session.user.id = user?.id ?? token?.sub ?? "";
+          session.user.discordUserId = typeof token.discordUserId === "string" ? token.discordUserId : null;
         }
 
         return session;

@@ -162,6 +162,54 @@ describe("discord notification integration", () => {
     expect(embed.description).toBeUndefined();
   });
 
+  it("mentions Discord assignees in local notification payloads", async () => {
+    const fetch = fetchMock();
+    const discordUserId = "1505035193218629775";
+    const boardId = await createSqliteBoard(discordUserId, "Discord user board");
+    const board = await getSqliteBoardForUser(boardId, discordUserId, {
+      id: discordUserId,
+      name: "Discord User",
+      email: null,
+      discordUserId,
+    });
+
+    if (!board) {
+      throw new Error("Missing board.");
+    }
+
+    await setSqliteBoardDiscordWebhook(board.id, discordUserId, webhookUrl);
+    const todo = board.lists.find((list) => list.title === "todo");
+
+    if (!todo) {
+      throw new Error("Missing todo list.");
+    }
+
+    const card = await createSqliteCard(todo.id, discordUserId, "Mention task");
+    await updateSqliteCard(card.id, discordUserId, card.title, "", null, discordUserId, {
+      id: discordUserId,
+      name: "Discord User",
+      email: null,
+      discordUserId,
+    });
+    await notifyCardAssigned(card.id, discordUserId, null, discordUserId);
+
+    expect(firstPayload(fetch).content).toBe(`<@${discordUserId}> [Mention task] に [Discord User] がアサインされました`);
+    expect(firstPayload(fetch).allowed_mentions).toEqual({ users: [discordUserId] });
+
+    fetch.mockClear();
+    const doing = board.lists.find((list) => list.title === "doing");
+
+    if (!doing) {
+      throw new Error("Missing doing list.");
+    }
+
+    const notifications = await prepareCardMoveNotifications(board.id, discordUserId, [{ listId: doing.id, cardIds: [card.id] }]);
+    await sendCardMoveNotifications(notifications);
+
+    expect(firstPayload(fetch).content).toBe(`<@${discordUserId}> [Mention task] が [doing] に移動されました`);
+    expect(firstPayload(fetch).allowed_mentions).toEqual({ users: [discordUserId] });
+  });
+
   it("sends due-soon notifications once, excluding done and out-of-window cards", async () => {
     const fetch = fetchMock();
     const { board, listByTitle } = await createBoardFixture();
@@ -184,9 +232,47 @@ describe("discord notification integration", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(firstEmbed(fetch).title).toBe("[Due task] の締め切りが近づいています");
     expect(firstEmbed(fetch).url).toBe(`http://localhost:3100/boards/${board.id}?card=${due.id}`);
+    expect(firstPayload(fetch).content).toBeUndefined();
+    expect(firstPayload(fetch).allowed_mentions).toBeUndefined();
 
     await expect(sendDueSoonDiscordNotifications(now)).resolves.toEqual({ checked: 0, sent: 0 });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("mentions Discord assignees in due-soon notification payloads", async () => {
+    const fetch = fetchMock();
+    const discordUserId = "1505035193218629775";
+    const now = new Date("2026-05-19T00:00:00.000Z");
+    const boardId = await createSqliteBoard(discordUserId, "Due mention board");
+    const board = await getSqliteBoardForUser(boardId, discordUserId, {
+      id: discordUserId,
+      name: "Discord User",
+      email: null,
+      discordUserId,
+    });
+
+    if (!board) {
+      throw new Error("Missing board.");
+    }
+
+    await setSqliteBoardDiscordWebhook(board.id, discordUserId, webhookUrl);
+    const todo = board.lists.find((list) => list.title === "todo");
+
+    if (!todo) {
+      throw new Error("Missing todo list.");
+    }
+
+    const due = await createSqliteCard(todo.id, discordUserId, "Due mention task");
+    await updateSqliteCard(due.id, discordUserId, due.title, "", new Date("2026-05-19T12:00:00.000Z"), discordUserId, {
+      id: discordUserId,
+      name: "Discord User",
+      email: null,
+      discordUserId,
+    });
+
+    await expect(sendDueSoonDiscordNotifications(now)).resolves.toEqual({ checked: 1, sent: 1 });
+    expect(firstPayload(fetch).content).toBe(`<@${discordUserId}> [Due mention task] の締め切りが近づいています`);
+    expect(firstPayload(fetch).allowed_mentions).toEqual({ users: [discordUserId] });
   });
 
   it("does not record due-soon notifications when Discord delivery fails", async () => {
