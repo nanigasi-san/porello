@@ -1,16 +1,16 @@
 import { redirect } from "next/navigation";
 import { ArrowRight, Columns3, LogIn } from "lucide-react";
 import Link from "next/link";
-import { hasGoogleOAuthConfig, signIn } from "@/auth";
+import { hasDiscordOAuthConfig, signIn } from "@/auth";
 import { getCurrentSession } from "@/lib/session";
 
-async function signInWithGoogle() {
+async function signInWithDiscord() {
   "use server";
-  if (!hasGoogleOAuthConfig()) {
+  if (!hasDiscordOAuthConfig()) {
     redirect("/demo");
   }
 
-  await signIn("google", { redirectTo: "/boards" });
+  await signIn("discord", { redirectTo: "/boards" });
 }
 
 export default async function Home() {
@@ -37,10 +37,10 @@ export default async function Home() {
             >
               デモ
             </Link>
-            <form action={signInWithGoogle}>
+            <form action={signInWithDiscord}>
               <button className="inline-flex items-center gap-2 rounded-md border border-[#d8dee9] bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:border-[#a8b2c1] hover:bg-[#f8fafc] sm:px-4">
                 <LogIn size={16} />
-                <span className="hidden sm:inline">Googleでログイン</span>
+                <span className="hidden sm:inline">Discordでログイン</span>
                 <span className="sm:hidden">ログイン</span>
               </button>
             </form>
@@ -56,13 +56,13 @@ export default async function Home() {
               Porello
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-8 text-[#475467]">
-              Googleアカウントで入り、ボード、リスト、カードをすぐに整理できる軽量なカンバンアプリです。
+              Discordアカウントで入り、担当者へのメンション通知までつなげられる軽量なカンバンアプリです。
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <form action={signInWithGoogle}>
+              <form action={signInWithDiscord}>
                 <button className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#0f766e] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#115e59] sm:w-auto">
                   <LogIn size={18} />
-                  Googleで始める
+                  Discordで始める
                   <ArrowRight size={18} />
                 </button>
               </form>

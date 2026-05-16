@@ -19,7 +19,7 @@ export function AuthControls({ session }: { session: Session }) {
     <div className="flex items-center gap-3">
       <div className="hidden items-center gap-2 rounded-md border border-[#d8dee9] bg-white px-3 py-2 text-sm text-[#475467] shadow-sm sm:flex">
         <UserRound size={16} />
-        <span className="max-w-40 truncate">{session.user?.name ?? "Google user"}</span>
+        <span className="max-w-40 truncate">{session.user?.name ?? "Discord user"}</span>
       </div>
       <form action={signOutAction}>
         <button

@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Porello",
-  description: "Private kanban boards with Google sign-in.",
+  description: "Private kanban boards with Discord sign-in.",
 };
 
 export default function RootLayout({

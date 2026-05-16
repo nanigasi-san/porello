@@ -1,6 +1,6 @@
 import { and, eq, gt, inArray, lte, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { boardDiscordWebhooks, boards, cards, discordDeadlineNotifications, lists, users } from "@/db/schema";
+import { accounts, boardDiscordWebhooks, boards, cards, discordDeadlineNotifications, lists, users } from "@/db/schema";
 import {
   deleteSqliteBoardDiscordWebhook,
   getSqliteBoardDiscordWebhook,
@@ -25,6 +25,13 @@ type DiscordWebhookEmbed = {
   timestamp?: string;
 };
 
+type DiscordWebhookOptions = {
+  content?: string;
+  allowedMentions?: {
+    users: string[];
+  };
+};
+
 type NotificationCard = {
   id: string;
   title: string;
@@ -35,6 +42,7 @@ type NotificationCard = {
   listTitle: string;
   assigneeName: string | null;
   assigneeEmail: string | null;
+  assigneeDiscordUserId: string | null;
   webhookUrl: string;
 };
 
@@ -136,13 +144,17 @@ export async function notifyCardAssigned(cardId: string, userId: string, previou
   }
 
   const assigneeLabel = card.assigneeName ?? card.assigneeEmail ?? "担当者";
-  await sendDiscordWebhook(card.webhookUrl, {
-    title: assignedNotificationTitle(card.title, assigneeLabel),
-    color: 0x0f766e,
-    url: cardUrl(card),
-    fields: notificationFields(card),
-    timestamp: new Date().toISOString(),
-  });
+  await sendDiscordWebhook(
+    card.webhookUrl,
+    {
+      title: assignedNotificationTitle(card.title, assigneeLabel),
+      color: 0x0f766e,
+      url: cardUrl(card),
+      fields: notificationFields(card),
+      timestamp: new Date().toISOString(),
+    },
+    buildAssignedDiscordWebhookOptions(card.title, assigneeLabel, card.assigneeDiscordUserId),
+  );
 }
 
 export async function prepareCardMoveNotifications(boardId: string, userId: string, updates: { listId: string; cardIds: string[] }[]) {
@@ -241,6 +253,7 @@ async function getNotificationCard(cardId: string, userId: string): Promise<Noti
       listTitle: lists.title,
       assigneeName: users.name,
       assigneeEmail: users.email,
+      assigneeDiscordUserId: accounts.providerAccountId,
       webhookUrl: boardDiscordWebhooks.webhookUrl,
     })
     .from(cards)
@@ -248,6 +261,7 @@ async function getNotificationCard(cardId: string, userId: string): Promise<Noti
     .innerJoin(boards, eq(boards.id, lists.boardId))
     .innerJoin(boardDiscordWebhooks, eq(boardDiscordWebhooks.boardId, boards.id))
     .leftJoin(users, eq(users.id, cards.assigneeId))
+    .leftJoin(accounts, and(eq(accounts.userId, cards.assigneeId), eq(accounts.provider, "discord")))
     .where(and(eq(cards.id, cardId), eq(boards.ownerId, userId)))
     .limit(1);
 
@@ -271,6 +285,7 @@ async function getNotificationCardsForBoard(boardId: string, userId: string): Pr
       listTitle: lists.title,
       assigneeName: users.name,
       assigneeEmail: users.email,
+      assigneeDiscordUserId: accounts.providerAccountId,
       webhookUrl: boardDiscordWebhooks.webhookUrl,
     })
     .from(cards)
@@ -278,6 +293,7 @@ async function getNotificationCardsForBoard(boardId: string, userId: string): Pr
     .innerJoin(boards, eq(boards.id, lists.boardId))
     .innerJoin(boardDiscordWebhooks, eq(boardDiscordWebhooks.boardId, boards.id))
     .leftJoin(users, eq(users.id, cards.assigneeId))
+    .leftJoin(accounts, and(eq(accounts.userId, cards.assigneeId), eq(accounts.provider, "discord")))
     .where(and(eq(boards.id, boardId), eq(boards.ownerId, userId)));
 }
 
@@ -310,6 +326,7 @@ async function getDueNotificationCards(now: Date, until: Date): Promise<Notifica
       listTitle: lists.title,
       assigneeName: users.name,
       assigneeEmail: users.email,
+      assigneeDiscordUserId: accounts.providerAccountId,
       webhookUrl: boardDiscordWebhooks.webhookUrl,
     })
     .from(cards)
@@ -317,6 +334,7 @@ async function getDueNotificationCards(now: Date, until: Date): Promise<Notifica
     .innerJoin(boards, eq(boards.id, lists.boardId))
     .innerJoin(boardDiscordWebhooks, eq(boardDiscordWebhooks.boardId, boards.id))
     .leftJoin(users, eq(users.id, cards.assigneeId))
+    .leftJoin(accounts, and(eq(accounts.userId, cards.assigneeId), eq(accounts.provider, "discord")))
     .leftJoin(
       discordDeadlineNotifications,
       and(
@@ -347,12 +365,16 @@ async function recordDeadlineNotification(cardId: string, dueAt: Date) {
     .onConflictDoNothing();
 }
 
-async function sendDiscordWebhook(webhookUrl: string, embed: DiscordWebhookEmbed) {
+async function sendDiscordWebhook(webhookUrl: string, embed: DiscordWebhookEmbed, options: DiscordWebhookOptions = {}) {
   try {
     const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ embeds: [embed] }),
+      body: JSON.stringify({
+        content: options.content,
+        embeds: [embed],
+        allowed_mentions: options.allowedMentions,
+      }),
     });
 
     if (!response.ok) {
@@ -378,6 +400,7 @@ function sqliteNotificationCard(row: SqliteNotificationCardRow): NotificationCar
     listTitle: row.list_title,
     assigneeName: row.assignee_name,
     assigneeEmail: row.assignee_email,
+    assigneeDiscordUserId: null,
     webhookUrl: row.webhook_url,
   };
 }
@@ -396,6 +419,17 @@ export function buildDiscordCardUrl(baseUrl: string, boardId: string, cardId: st
 
 export function assignedNotificationTitle(cardTitle: string, assigneeLabel: string) {
   return `${notificationVariable(cardTitle)} に ${notificationVariable(assigneeLabel)} がアサインされました`;
+}
+
+export function buildAssignedDiscordWebhookOptions(cardTitle: string, assigneeLabel: string, discordUserId: string | null): DiscordWebhookOptions {
+  if (!discordUserId) {
+    return {};
+  }
+
+  return {
+    content: `<@${discordUserId}> ${assignedNotificationTitle(cardTitle, assigneeLabel)}`,
+    allowedMentions: { users: [discordUserId] },
+  };
 }
 
 export function movedNotificationTitle(cardTitle: string, listTitle: string) {

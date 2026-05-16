@@ -1,18 +1,18 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import Google from "next-auth/providers/google";
+import Discord from "next-auth/providers/discord";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { getDb } from "@/db";
 import { accounts, sessions, users, verificationTokens } from "@/db/schema";
 
-export function hasGoogleOAuthConfig() {
-  const clientId = process.env.AUTH_GOOGLE_ID;
-  const clientSecret = process.env.AUTH_GOOGLE_SECRET;
+export function hasDiscordOAuthConfig() {
+  const clientId = process.env.AUTH_DISCORD_ID;
+  const clientSecret = process.env.AUTH_DISCORD_SECRET;
 
   return Boolean(
     clientId &&
       clientSecret &&
-      clientId.endsWith(".apps.googleusercontent.com") &&
+      !clientId.includes("replace-with") &&
       !clientSecret.includes("replace-with"),
   );
 }
@@ -20,7 +20,7 @@ export function hasGoogleOAuthConfig() {
 export const { handlers, auth, signIn, signOut } = NextAuth(() => {
   const hasDatabase = Boolean(process.env.DATABASE_URL);
   const providers = [
-    Google,
+    Discord,
     ...(process.env.NODE_ENV === "production"
       ? []
       : [

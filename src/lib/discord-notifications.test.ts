@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assignedNotificationTitle,
   buildDiscordCardUrl,
+  buildAssignedDiscordWebhookOptions,
   dueSoonNotificationTitle,
   movedNotificationTitle,
   notificationListStatus,
@@ -41,5 +42,13 @@ describe("discord notification helpers", () => {
     expect(assignedNotificationTitle("New card", "山田海音")).toBe("[New card] に [山田海音] がアサインされました");
     expect(movedNotificationTitle("task2", "doing")).toBe("[task2] が [doing] に移動されました");
     expect(dueSoonNotificationTitle("Due task")).toBe("[Due task] の締め切りが近づいています");
+  });
+
+  it("builds assignment mention options only when a Discord user id is available", () => {
+    expect(buildAssignedDiscordWebhookOptions("New card", "山田海音", "1234567890")).toEqual({
+      content: "<@1234567890> [New card] に [山田海音] がアサインされました",
+      allowedMentions: { users: ["1234567890"] },
+    });
+    expect(buildAssignedDiscordWebhookOptions("New card", "山田海音", null)).toEqual({});
   });
 });

@@ -30,7 +30,7 @@ test.describe("demo mode", () => {
     await expect(page).toHaveURL(/\/demo$/);
     await expect(page.getByText("保存されないデモボード")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Launch plan" })).toBeVisible();
-    await expect(column(page, "Backlog")).toContainText("Google OAuthの環境変数を設定");
+    await expect(column(page, "Backlog")).toContainText("Discord OAuthの環境変数を設定");
     await expect(column(page, "Doing")).toContainText("カード詳細を書く");
     await expect(column(page, "Done")).toContainText("ボードの構成を決める");
   });
@@ -39,7 +39,7 @@ test.describe("demo mode", () => {
     await page.goto("/demo");
 
     await page.getByPlaceholder("カード検索").fill("OAuth");
-    await expect(page.getByText("Google OAuthの環境変数を設定")).toBeVisible();
+    await expect(page.getByText("Discord OAuthの環境変数を設定")).toBeVisible();
     await expect(page.getByText("カード詳細を書く")).not.toBeVisible();
     await expect(page.getByText("一致するカードはありません")).toHaveCount(2);
 
@@ -50,9 +50,9 @@ test.describe("demo mode", () => {
   test("opens and closes card details", async ({ page }) => {
     await page.goto("/demo");
 
-    await page.getByRole("button", { name: /Google OAuthの環境変数を設定/ }).click();
+    await page.getByRole("button", { name: /Discord OAuthの環境変数を設定/ }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page.getByRole("dialog")).toContainText("本番URLのcallbackをGoogle Cloud Consoleに追加します。");
+    await expect(page.getByRole("dialog")).toContainText("本番URLのcallbackをDiscord Developer Portalに追加します。");
 
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).not.toBeVisible();
@@ -87,12 +87,12 @@ test.describe("demo mode", () => {
   test("reorders cards within a list", async ({ page }) => {
     await page.goto("/demo");
 
-    const first = page.getByRole("button", { name: /Google OAuthの環境変数を設定/ });
+    const first = page.getByRole("button", { name: /Discord OAuthの環境変数を設定/ });
     const third = page.getByRole("button", { name: /優先度を見直す/ });
     await dragToLocator(page, first, third);
 
     const backlogText = await column(page, "Backlog").innerText();
-    expect(backlogText.indexOf("最初のボードを作る")).toBeLessThan(backlogText.indexOf("Google OAuthの環境変数を設定"));
+    expect(backlogText.indexOf("最初のボードを作る")).toBeLessThan(backlogText.indexOf("Discord OAuthの環境変数を設定"));
   });
 
   test("top and login navigation remain available from demo", async ({ page }) => {

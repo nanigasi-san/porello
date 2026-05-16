@@ -1,11 +1,11 @@
 # Porello
 
-Porello is an original kanban board MVP built for Vercel. It provides private boards, lists, cards, drag-and-drop ordering, and Google OAuth sign-in.
+Porello is an original kanban board MVP built for Vercel. It provides private boards, lists, cards, drag-and-drop ordering, and Discord OAuth sign-in.
 
 ## Stack
 
 - Next.js App Router, TypeScript, Tailwind CSS
-- Auth.js with Google Provider
+- Auth.js with Discord Provider
 - Neon Postgres and Drizzle ORM
 - `@dnd-kit` for drag-and-drop board interactions
 
@@ -31,10 +31,10 @@ Porello is an original kanban board MVP built for Vercel. It provides private bo
    npm run dev
    ```
 
-Google callback URLs:
+Discord callback URLs:
 
-- Local: `http://localhost:3100/api/auth/callback/google`
-- Production: `https://<vercel-domain>/api/auth/callback/google`
+- Local: `http://localhost:3100/api/auth/callback/discord`
+- Production: `https://<vercel-domain>/api/auth/callback/discord`
 
 ## Verification
 

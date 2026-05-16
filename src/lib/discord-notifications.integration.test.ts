@@ -60,14 +60,21 @@ function fetchMock(status = 204) {
 }
 
 function firstEmbed(fetch: ReturnType<typeof fetchMock>) {
+  return firstPayload(fetch).embeds[0] as { title: string; description?: string; url?: string; fields?: { name: string; value: string }[] };
+}
+
+function firstPayload(fetch: ReturnType<typeof fetchMock>) {
   const init = fetch.mock.calls[0]?.[1];
 
   if (!init?.body) {
     throw new Error("Missing Discord webhook payload.");
   }
 
-  const body = JSON.parse(String(init.body));
-  return body.embeds[0] as { title: string; description?: string; url?: string; fields?: { name: string; value: string }[] };
+  return JSON.parse(String(init.body)) as {
+    content?: string;
+    allowed_mentions?: { users: string[] };
+    embeds: { title: string; description?: string; url?: string; fields?: { name: string; value: string }[] }[];
+  };
 }
 
 describe("discord notification integration", () => {
@@ -143,6 +150,8 @@ describe("discord notification integration", () => {
     expect(embed.description).toBeUndefined();
     expect(embed.url).toBe(`http://localhost:3100/boards/${board.id}?card=${card.id}`);
     expect(embed.fields?.some((field) => field.name === "カードURL" && field.value.includes(`card=${card.id}`))).toBe(true);
+    expect(firstPayload(fetch).content).toBeUndefined();
+    expect(firstPayload(fetch).allowed_mentions).toBeUndefined();
 
     fetch.mockClear();
     const notifications = await prepareCardMoveNotifications(board.id, userId, [{ listId: doing.id, cardIds: [card.id] }]);

@@ -73,6 +73,7 @@ Unit tests は `src/lib/**/*.test.ts` を中心に置く。DB、外部 API、ブ
 - Discord Webhook URL validation
 - `notificationListStatus`
 - 通知タイトル生成
+- アサイン通知のDiscordメンションpayload生成
 - カード URL 生成
 
 検証内容:
@@ -82,6 +83,8 @@ Unit tests は `src/lib/**/*.test.ts` を中心に置く。DB、外部 API、ブ
 - `doing` と `done` は大文字小文字と前後空白を吸収して判定する。
 - `Doing 1`, `Done済み`, `todo` は通知対象外にする。
 - アサイン通知タイトルは `[task] に [user] がアサインされました` にする。
+- Discord user id があるアサイン通知は `content` に `<@userId>` を含め、`allowed_mentions.users` を対象ユーザーだけにする。
+- Discord user id がないアサイン通知はメンションpayloadを生成しない。
 - 移動通知タイトルは `[task] が [list] に移動されました` にする。
 - 期限通知タイトルは `[task] の締め切りが近づいています` にする。
 - `AUTH_URL` の末尾 slash 有無に関係なく `/boards/{boardId}?card={cardId}` を生成する。
@@ -154,6 +157,7 @@ Integration tests は SQLite 保存層と業務ロジックの接続を検証す
 - 同一リスト内の並び替えでは通知候補を返さない。
 - Webhook 未設定ボードでは通知候補を返さない。
 - アサイン通知と移動通知の embed は bracketed variable title を使い、description を入れない。
+- SQLite のアサイン通知ではDiscord account情報がないため、Webhook payload に `content` と `allowed_mentions` を入れない。
 - embed にはカード詳細へ開ける URL を入れる。
 - 期限通知は24時間以内、Done以外、未通知のカードだけを送信対象にする。
 - Discord 送信失敗時は例外を投げず、成功時だけ期限通知ログを記録する。
@@ -186,6 +190,7 @@ E2E tests は `tests/**/*.spec.ts` に置く。Playwright で実際のブラウ�
 対象:
 
 - 開発用テストログイン
+- Discordログインへ移行後も、開発用テストログインで認証後の主要導線を検証する。
 - ボード作成、ボード詳細メニューからの削除、ボード一覧からの削除
 - 初期5リスト表示
 - リスト追加、改名、並び替え、削除、reload 後の保持
@@ -211,6 +216,7 @@ E2E tests は `tests/**/*.spec.ts` に置く。Playwright で実際のブラウ�
 
 - トップからデモ画面への遷移
 - デモボードの初期表示
+- Discord OAuth設定カードの表示
 - カード検索と空状態
 - カード詳細表示と Esc で閉じる操作
 - デモリスト/カード追加

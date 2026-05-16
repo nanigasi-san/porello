@@ -41,7 +41,7 @@ const initialLists: DemoList[] = [
     id: "backlog",
     title: "Backlog",
     cards: [
-      { id: "card-1", title: "Google OAuthの環境変数を設定", description: "本番URLのcallbackをGoogle Cloud Consoleに追加します。" },
+      { id: "card-1", title: "Discord OAuthの環境変数を設定", description: "本番URLのcallbackをDiscord Developer Portalに追加します。" },
       { id: "card-2", title: "最初のボードを作る", description: "プロジェクト単位でボードを分けます。" },
       { id: "card-3", title: "優先度を見直す", description: "今週やるものだけをDoingへ移します。" },
     ],
